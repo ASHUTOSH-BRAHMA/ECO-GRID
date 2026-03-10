@@ -21,6 +21,7 @@ import NavBar from "./NavBar"
 import { AuthContext } from "../Context/AuthContext"
 import useSocket from "../hooks/useSocket"
 import { handlesuccess, handleerror } from "../../utils"
+import { apiUrl } from "../config"
 
 const UtilityDashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -54,7 +55,7 @@ const UtilityDashboard = () => {
     const fetchUtilityData = async () => {
       try {
         // Fetch all transactions for grid overview
-        const txRes = await fetch('http://localhost:8080/api/dashboard/transactions')
+        const txRes = await fetch(apiUrl('/dashboard/transactions'))
         if (txRes.ok) {
           const txData = await txRes.json()
           const totalVolume = txData.reduce((sum, t) => sum + (Number(t.energyKwh) || 0), 0)
@@ -71,7 +72,7 @@ const UtilityDashboard = () => {
 
       try {
         // Fetch listings to count producers
-        const listingsRes = await fetch('http://localhost:8080/api/listings')
+        const listingsRes = await fetch(apiUrl('/listings'))
         if (listingsRes.ok) {
           const listingsData = await listingsRes.json()
           if (listingsData.success) {
@@ -82,7 +83,7 @@ const UtilityDashboard = () => {
       } catch (err) { console.error('Error fetching listings:', err) }
 
       try {
-        const summaryRes = await fetch('http://localhost:8080/api/dashboard/site-summary', { headers })
+        const summaryRes = await fetch(apiUrl('/dashboard/site-summary'), { headers })
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json()
           if (summaryData.success) {

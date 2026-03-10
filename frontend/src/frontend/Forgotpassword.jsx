@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { handlesuccess } from "../../utils";
+import { API_BASE_URL } from "../config";
 
 const ForgotPasswordPage = () => {
     const [email, setEmail] = useState("");
@@ -12,7 +13,7 @@ const ForgotPasswordPage = () => {
     
     const navigate = useNavigate();
     const api = axios.create({
-        baseURL: import.meta.env.VITE_API_URL || "http://localhost:8080/api",
+        baseURL: API_BASE_URL,
         withCredentials: true
     });
 
@@ -188,7 +189,7 @@ const ResetCodeVerification = ({ email }) => {
     
     const navigate = useNavigate();
     const api = axios.create({
-        baseURL: import.meta.env.VITE_API_URL || "http://localhost:8080/api",
+            baseURL: API_BASE_URL,
         withCredentials: true
     });
 

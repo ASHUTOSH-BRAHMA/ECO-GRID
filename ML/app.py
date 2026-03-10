@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 import os
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])
+allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
+CORS(app, origins=[origin.strip() for origin in allowed_origins.split(",") if origin.strip()])
 
 # ──────────────────────────────────────────────
 # CONFIG  –  fill in your real keys / paths
@@ -290,4 +291,4 @@ def predict():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() == "true", port=int(os.getenv("PORT", "5000")))

@@ -1,6 +1,7 @@
 from flask import Flask
 from flask_cors import CORS
 from routes import main_blueprint
+import os
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for entire application
@@ -12,4 +13,4 @@ app.config['SECRET_KEY'] = 'energy_forecast_secret_key'
 app.register_blueprint(main_blueprint)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() == "true", port=int(os.getenv("PORT", "5001")))

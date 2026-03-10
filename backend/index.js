@@ -13,11 +13,23 @@ import TransactionRouter from "./Routes/TransactionRouter.js";
 
 const app = e();
 const httpServer = createServer(app);
+const allowedOrigins = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || "http://localhost:5173")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+const corsOrigin = (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+    }
+    callback(new Error("Not allowed by CORS"));
+};
 
 // Initialize Socket.IO
 const io = new Server(httpServer, {
     cors: {
-        origin: "http://localhost:5173",
+        origin: corsOrigin,
         methods: ["GET", "POST"],
         credentials: true
     }
@@ -28,7 +40,7 @@ connectDB()
 
 app.use(
     cors({
-        origin: "http://localhost:5173",
+        origin: corsOrigin,
         credentials: true,
     })
 );

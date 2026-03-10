@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from "react";
 import { motion } from "framer-motion";
 import NavBar from "./NavBar";
 import { AuthContext } from "../Context/AuthContext";
+import { apiUrl } from "../config";
 
 const Blog = () => {
     const [posts, setPosts] = useState([]);
@@ -35,7 +36,7 @@ const Blog = () => {
     useEffect(() => {
         const fetchPosts = async () => {
             try {
-                const response = await fetch(`http://localhost:8080/api/community/posts?sort=${sortBy}`);
+                const response = await fetch(apiUrl(`/community/posts?sort=${sortBy}`));
                 if (response.ok) {
                     const data = await response.json();
                     setPosts(data);
@@ -51,7 +52,7 @@ const Blog = () => {
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const response = await fetch('http://localhost:8080/api/community/stats');
+                const response = await fetch(apiUrl('/community/stats'));
                 if (response.ok) {
                     const data = await response.json();
                     if (data.success) {
@@ -74,7 +75,7 @@ const Blog = () => {
         if (!newPostTitle.trim() || !newPostContent.trim()) return;
 
         try {
-            const response = await fetch('http://localhost:8080/api/community/posts', {
+            const response = await fetch(apiUrl('/community/posts'), {
                 method: 'POST',
                 headers: getAuthHeaders(),
                 body: JSON.stringify({
@@ -102,7 +103,7 @@ const Blog = () => {
         if (!commentContent.trim()) return;
 
         try {
-            const response = await fetch(`http://localhost:8080/api/community/posts/${postId}/comments`, {
+            const response = await fetch(apiUrl(`/community/posts/${postId}/comments`), {
                 method: 'POST',
                 headers: getAuthHeaders(),
                 body: JSON.stringify({
@@ -124,9 +125,9 @@ const Blog = () => {
     // Handle voting
     const handleVote = async (postId, commentId, isUpvote) => {
         try {
-            let url = `http://localhost:8080/api/community/posts/${postId}/vote`;
+            let url = apiUrl(`/community/posts/${postId}/vote`);
             if (commentId) {
-                url = `http://localhost:8080/api/community/posts/${postId}/comments/${commentId}/vote`;
+                url = apiUrl(`/community/posts/${postId}/comments/${commentId}/vote`);
             }
 
             const response = await fetch(url, {

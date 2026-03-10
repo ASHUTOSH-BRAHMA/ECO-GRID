@@ -1,9 +1,9 @@
 import React, { useEffect, useContext } from 'react';
 import { AuthContext } from '../Context/AuthContext';
 import { handleerror, handlesuccess } from '../../utils';
+import { API_BASE_URL } from '../config';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8080/api";
 
 const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 'Sign in with Google' }) => {
   const { login } = useContext(AuthContext);

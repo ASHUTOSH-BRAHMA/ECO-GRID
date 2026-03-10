@@ -6,6 +6,7 @@ import { Edit, Save, User, MapPin, Zap, SunIcon, X, Loader2, Mail, UserCheck, Wa
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 import { handleerror, handlesuccess } from "../../utils";
 import axios from "axios";
+import { API_BASE_URL, apiUrl } from "../config";
 
 const Profile = () => {
   const { user } = useContext(AuthContext);
@@ -35,7 +36,7 @@ const Profile = () => {
   });
 
   const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || "http://localhost:8080/api",
+    baseURL: API_BASE_URL,
     withCredentials: true
   });
 
@@ -91,7 +92,7 @@ const Profile = () => {
       try {
         const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken");
         if (!token) return;
-        const res = await fetch('http://localhost:8080/api/user/transactions', {
+        const res = await fetch(apiUrl('/user/transactions'), {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok) return;

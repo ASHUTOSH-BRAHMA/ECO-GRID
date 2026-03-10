@@ -2,11 +2,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import NavBar from "./NavBar";
+import { apiUrl, FORECAST_API_URL, LSTM_CITY_API_URL, ML_ECOGRID_API_URL } from "../config";
 
 // ── API URLs ──────────────────────────────────────────────────────────────────
-const LSTM_CITY_URL  = "http://localhost:5000";   // ML/app.py
-const XGBOOST_URL    = "http://localhost:5001";   // pythonfiles/app.py
-const ECOGRID_URL    = "http://localhost:8000";   // ML_ecogrid/api.py
+const LSTM_CITY_URL  = LSTM_CITY_API_URL;
+const XGBOOST_URL    = FORECAST_API_URL;
+const ECOGRID_URL    = ML_ECOGRID_API_URL;
 
 // ── Design tokens (matching index.html) ──────────────────────────────────────
 const C = {
@@ -734,8 +735,8 @@ const SiteForecast = () => {
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
       const [summaryRes, forecastRes] = await Promise.all([
-        fetch("http://localhost:8080/api/dashboard/site-summary", { headers }),
-        fetch(`http://localhost:8080/api/dashboard/site-forecast?hours=${nextHours}`, { headers })
+        fetch(apiUrl("/dashboard/site-summary"), { headers }),
+        fetch(apiUrl(`/dashboard/site-forecast?hours=${nextHours}`), { headers })
       ]);
 
       const summaryJson = await summaryRes.json();

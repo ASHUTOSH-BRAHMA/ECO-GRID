@@ -21,6 +21,7 @@ import NavBar from "./NavBar"
 import { AuthContext } from "../Context/AuthContext"
 import useSocket from "../hooks/useSocket"
 import { handlesuccess, handleerror } from "../../utils"
+import { apiUrl } from "../config"
 
 const ConsumerDashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -55,7 +56,7 @@ const ConsumerDashboard = () => {
     const fetchConsumerData = async () => {
       try {
         // Transactions → purchased kWh and savings
-        const txRes = await fetch('http://localhost:8080/api/user/transactions', { headers })
+        const txRes = await fetch(apiUrl('/user/transactions'), { headers })
         if (txRes.ok) {
           const txData = await txRes.json()
           if (txData.success) {
@@ -83,7 +84,7 @@ const ConsumerDashboard = () => {
 
       try {
         // Profile → location, energy usage
-        const profRes = await fetch('http://localhost:8080/api/user/profile', { headers })
+        const profRes = await fetch(apiUrl('/user/profile'), { headers })
         if (profRes.ok) {
           const prof = await profRes.json()
           const loc = prof.location || 'Not set'
@@ -117,7 +118,7 @@ const ConsumerDashboard = () => {
       if (!token) return
       
       try {
-        const res = await fetch('http://localhost:8080/api/dashboard/energy-price', {
+        const res = await fetch(apiUrl('/dashboard/energy-price'), {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (res.ok) {
@@ -134,7 +135,7 @@ const ConsumerDashboard = () => {
       }
 
       try {
-        const res = await fetch('http://localhost:8080/api/dashboard/site-summary', {
+        const res = await fetch(apiUrl('/dashboard/site-summary'), {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (res.ok) {
@@ -148,7 +149,7 @@ const ConsumerDashboard = () => {
       }
 
       try {
-        const res = await fetch('http://localhost:8080/api/dashboard/marketplace-opportunities', {
+        const res = await fetch(apiUrl('/dashboard/marketplace-opportunities'), {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (res.ok) {

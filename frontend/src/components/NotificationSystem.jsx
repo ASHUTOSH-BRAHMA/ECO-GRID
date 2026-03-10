@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Bell, CheckCircle, AlertCircle, Info, Zap, ShoppingCart } from 'lucide-react';
 import useSocket from '../hooks/useSocket';
+import { ML_ECOGRID_API_URL } from '../config';
 
 // Consistent dark theme colors
 const C = {
@@ -116,7 +117,7 @@ const NotificationSystem = () => {
     }, 2000);
 
     // Fetch alerts from forecasting backend
-    fetch("http://localhost:8000/forecast", {
+    fetch(`${ML_ECOGRID_API_URL}/forecast`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ zone_name: "Northern", forecast_hours: 24 })
     })

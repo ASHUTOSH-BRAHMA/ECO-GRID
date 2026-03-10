@@ -8,6 +8,7 @@ import NavBar from "./NavBar";
 import GoogleSignIn from "../components/GoogleSignIn";
 import { AuthContext } from "../Context/AuthContext";
 import { handlesuccess } from "../../utils";
+import { API_BASE_URL } from "../config";
 
 const C = {
   bg: "#060810", bg2: "#0c0f1a", bg3: "#111525",
@@ -23,7 +24,7 @@ const css = `
   input, select { outline: none; }
 `
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || "http://localhost:8080/api", withCredentials: true });
+const api = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
 
 const Field = ({ label, type = "text", value, onChange, placeholder, icon, error, children }) => (
   <div>

@@ -8,6 +8,7 @@ import { handlesuccess } from "../../utils";
 import ReCAPTCHA from "react-google-recaptcha";
 import NavBar from "./NavBar";
 import GoogleSignIn from "../components/GoogleSignIn";
+import { API_BASE_URL } from "../config";
 
 const C = {
   bg: "#060810", bg2: "#0c0f1a", bg3: "#111525",
@@ -53,7 +54,7 @@ const LoginPage = () => {
 
   const navigate = useNavigate();
   const { setIsAuthenticated } = useContext(AuthContext);
-  const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || "http://localhost:8080/api", withCredentials: true });
+const api = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
 
   const handleSubmit = async (e) => {
     e.preventDefault();

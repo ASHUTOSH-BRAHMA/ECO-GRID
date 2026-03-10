@@ -1,6 +1,7 @@
 import { createContext, useMemo, useState, useEffect } from "react";
 import axios from "axios";
 import { handleerror } from "../../utils";
+import { API_BASE_URL } from "../config";
 
 export const AuthContext = createContext();
 
@@ -10,7 +11,7 @@ export const AuthProvider = ({ children }) => {
     const [isLoading, setIsLoading] = useState(true);
 
     const api = useMemo(() => axios.create({
-        baseURL: import.meta.env.VITE_API_URL || "http://localhost:8080/api",
+        baseURL: API_BASE_URL,
         withCredentials: true
     }), []);
 

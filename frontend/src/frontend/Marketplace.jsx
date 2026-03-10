@@ -5,6 +5,7 @@ import TradeModal from "../components/TradeModal";
 import { handleerror, handlesuccess } from "../../utils";
 import { AuthContext } from "../Context/AuthContext";
 import useSocket from "../hooks/useSocket";
+import { apiUrl } from "../config";
 
 // ── Same design tokens as EnergyForecast ─────────────────────────────────────
 const C = {
@@ -76,10 +77,10 @@ const MarketplacePage = () => {
     const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
     const headers = { Authorization: `Bearer ${token}` };
     const go = async () => {
-      try { const r = await fetch('http://localhost:8080/api/user/listings', { headers }); const d = await r.json(); if (d.success) setMyListings(d.listings.map(l => ({ id: l._id, title: l.title, location: l.location, capacity: l.capacity, price: l.price, category: l.category, icon: l.icon, availability: l.availability }))); } catch {}
-      try { const r = await fetch('http://localhost:8080/api/user/listings/analytics', { headers }); const d = await r.json(); if (d.success) setAnalytics(d.analytics); } catch {}
+      try { const r = await fetch(apiUrl('/user/listings'), { headers }); const d = await r.json(); if (d.success) setMyListings(d.listings.map(l => ({ id: l._id, title: l.title, location: l.location, capacity: l.capacity, price: l.price, category: l.category, icon: l.icon, availability: l.availability }))); } catch {}
+      try { const r = await fetch(apiUrl('/user/listings/analytics'), { headers }); const d = await r.json(); if (d.success) setAnalytics(d.analytics); } catch {}
       try {
-        const r = await fetch('http://localhost:8080/api/user/transactions', { headers }); const d = await r.json();
+        const r = await fetch(apiUrl('/user/transactions'), { headers }); const d = await r.json();
         if (d.success) {
           setTransactions(d.transactions);
           const etk = d.transactions.filter(t => t.type === 'sold').reduce((s, t) => s + (Number(t.amount) || 0), 0);
@@ -88,7 +89,7 @@ const MarketplacePage = () => {
         }
       } catch {}
       try {
-        const r = await fetch('http://localhost:8080/api/dashboard/marketplace-opportunities', { headers }); const d = await r.json();
+        const r = await fetch(apiUrl('/dashboard/marketplace-opportunities'), { headers }); const d = await r.json();
         if (d.success) setOpportunities(d.opportunities || []);
       } catch {}
     }
@@ -98,7 +99,7 @@ const MarketplacePage = () => {
   useEffect(() => {
     const go = async () => {
       try {
-        const r = await fetch(`http://localhost:8080/api/listings?category=${selectedCategory !== "All" ? selectedCategory : ""}&search=${searchTerm}`);
+        const r = await fetch(apiUrl(`/listings?category=${selectedCategory !== "All" ? selectedCategory : ""}&search=${searchTerm}`));
         const d = await r.json();
         if (d.success) setEnergyListings(d.listings.map(l => ({ id: l._id, title: l.title, location: l.location, capacity: l.capacity, price: l.price, category: l.category, icon: l.icon, producer: l.producer?.name || 'Unknown', producerId: l.producer?._id || l.producer })));
       } catch {}
@@ -117,11 +118,11 @@ const MarketplacePage = () => {
       if (!token) return;
       const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
       if (editingListing) {
-        const r = await fetch(`http://localhost:8080/api/listings/${editingListing.id}`, { method: 'PUT', headers, body: JSON.stringify({ ...newListing, price: parseFloat(newListing.price) }) });
+        const r = await fetch(apiUrl(`/listings/${editingListing.id}`), { method: 'PUT', headers, body: JSON.stringify({ ...newListing, price: parseFloat(newListing.price) }) });
         const d = await r.json();
         if (d.success) setEnergyListings(p => p.map(l => l.id === editingListing.id ? { id: d.listing._id, title: d.listing.title, location: d.listing.location, capacity: d.listing.capacity, price: d.listing.price, category: d.listing.category, icon: d.listing.icon, producer: d.listing.producer?.name || "User" } : l));
       } else {
-        const r = await fetch('http://localhost:8080/api/listings', { method: 'POST', headers, body: JSON.stringify({ ...newListing, price: parseFloat(newListing.price) }) });
+        const r = await fetch(apiUrl('/listings'), { method: 'POST', headers, body: JSON.stringify({ ...newListing, price: parseFloat(newListing.price) }) });
         const d = await r.json();
         if (d.success) setEnergyListings(p => [...p, { id: d.listing._id, title: d.listing.title, location: d.listing.location, capacity: d.listing.capacity, price: d.listing.price, category: d.listing.category, icon: d.listing.icon, producer: d.listing.producer?.name || "User" }]);
       }
@@ -134,7 +135,7 @@ const MarketplacePage = () => {
     try {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
       if (!token) return;
-      const r = await fetch(`http://localhost:8080/api/listings/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      const r = await fetch(apiUrl(`/listings/${id}`), { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
       const d = await r.json();
       if (d.success) setEnergyListings(p => p.filter(l => l.id !== id));
     } catch {}
@@ -449,7 +450,7 @@ const MarketplacePage = () => {
           handlesuccess(`Trade completed! Tx: ${txHash.slice(0, 10)}...`);
           try {
             const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-            const r = await fetch('http://localhost:8080/api/user/transactions', { headers: { Authorization: `Bearer ${token}` } });
+            const r = await fetch(apiUrl('/user/transactions'), { headers: { Authorization: `Bearer ${token}` } });
             const d = await r.json();
             if (d.success) {
               const etk = d.transactions.filter(t => t.type === 'sold').reduce((s, t) => s + (Number(t.amount) || 0), 0);

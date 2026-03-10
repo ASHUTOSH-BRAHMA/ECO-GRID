@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Zap, Wallet, AlertCircle, CheckCircle, Loader2, ExternalLink, ShieldCheck, Activity } from 'lucide-react';
 import useBlockchain from '../hooks/useBlockchain';
+import { apiUrl } from '../config';
 
 // Premium Dark Theme Colors
 const C = {
@@ -57,7 +58,7 @@ const TradeModal = ({ isOpen, onClose, listing, onTradeComplete }) => {
 
       try {
         const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
-        await fetch('http://localhost:8080/api/transactions', {
+        await fetch(apiUrl('/transactions'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({

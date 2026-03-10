@@ -4,9 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { BarChart3, CloudSun, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import NavBar from "./NavBar";
-
-const ML_API_BASE_URL = import.meta.env.VITE_FORECAST_API_URL || "http://localhost:5001";
-const ECOGRID_API_BASE_URL = import.meta.env.VITE_ML_ECOGRID_API_URL || "http://localhost:8000";
+import { FORECAST_API_URL, ML_ECOGRID_API_URL } from "../config";
 
 const EnergyDemandForecast = () => {
   const [source, setSource] = useState("ml");
@@ -27,7 +25,7 @@ const EnergyDemandForecast = () => {
 
     const fetchZones = async () => {
       try {
-        const response = await fetch(`${ECOGRID_API_BASE_URL}/zones`);
+        const response = await fetch(`${ML_ECOGRID_API_URL}/zones`);
         const data = await response.json();
         const zoneList = data?.zones || [];
         setZones(zoneList);
@@ -56,13 +54,13 @@ const EnergyDemandForecast = () => {
     try {
       let response;
       if (source === "ml") {
-        response = await fetch(`${ML_API_BASE_URL}/predict`, {
+        response = await fetch(`${FORECAST_API_URL}/predict`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ city: city.trim() }),
         });
       } else {
-        response = await fetch(`${ECOGRID_API_BASE_URL}/forecast`, {
+        response = await fetch(`${ML_ECOGRID_API_URL}/forecast`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ zone_name: zone, forecast_hours: Number(forecastHours) || 72 }),

@@ -1,0 +1,64 @@
+services:
+  - type: web
+    name: ecogrid-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: RECAPTCHA_SECRET_KEY
+        sync: false
+      - key: EMAIL_SERVICE
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: DEVICE_API_KEY
+        sync: false
+
+  - type: web
+    name: ecogrid-ml-city
+    runtime: python
+    rootDir: ML
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+
+  - type: web
+    name: ecogrid-pythonfiles
+    runtime: python
+    rootDir: pythonfiles
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+
+  - type: web
+    name: ecogrid-ml-pipeline
+    runtime: python
+    rootDir: ML_ecogrid/ML_ecogrid
+    buildCommand: pip install -r ../requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11

@@ -11,6 +11,7 @@ import NavBar from "./NavBar"
 import { AuthContext } from "../Context/AuthContext"
 import useSocket from "../hooks/useSocket"
 import { handlesuccess, handleerror } from "../../utils"
+import { apiUrl } from "../config"
 
 const C = {
   bg: "#060810", bg2: "#0c0f1a", bg3: "#111525",
@@ -72,6 +73,25 @@ const formatTrendTick = (value) => {
   return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : value
 }
 
+const getTrendDomain = (data, key) => {
+  const values = data
+    .map((item) => Number(item?.[key]))
+    .filter((value) => Number.isFinite(value))
+
+  if (!values.length) return [0, 1]
+
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+
+  if (min === max) {
+    const padding = Math.max(Math.abs(min) * 0.05, 1)
+    return [min - padding, max + padding]
+  }
+
+  const padding = (max - min) * 0.08
+  return [min - padding, max + padding]
+}
+
 export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [telemetryData, setTelemetryData] = useState([])
@@ -90,7 +110,7 @@ export default function Dashboard() {
     const headers = { Authorization: `Bearer ${token}` }
     const fetchDashboardState = async () => {
       try {
-        const r = await fetch('http://localhost:8080/api/user/transactions', { headers })
+        const r = await fetch(apiUrl('/user/transactions'), { headers })
         if (r.ok) {
           const d = await r.json()
           if (d.success) {
@@ -104,7 +124,7 @@ export default function Dashboard() {
         }
       } catch {}
       try {
-        const r = await fetch('http://localhost:8080/api/user/profile', { headers })
+        const r = await fetch(apiUrl('/user/profile'), { headers })
         if (r.ok) {
           const p = await r.json()
           setPowerBackup(prev => ({ ...prev, capacity: `${p.energyUsage || 0} kWh/mo`, wallet: p.walletAddress ? p.walletAddress.slice(0, 6) + '…' : 'N/A' }))
@@ -112,11 +132,11 @@ export default function Dashboard() {
         }
       } catch {}
       try {
-        const r = await fetch('http://localhost:8080/api/dashboard/energy-price', { headers })
+        const r = await fetch(apiUrl('/dashboard/energy-price'), { headers })
         if (r.ok) { const d = await r.json(); if (d.success && d.energyPrice) setEnergyPrice(d.energyPrice) }
       } catch {}
       try {
-        const r = await fetch('http://localhost:8080/api/dashboard/site-summary', { headers })
+        const r = await fetch(apiUrl('/dashboard/site-summary'), { headers })
         if (r.ok) {
           const d = await r.json()
           if (d.success) setSiteSummary(d)
@@ -132,7 +152,7 @@ export default function Dashboard() {
   useEffect(() => {
     ;(async () => {
       try {
-        const r = await fetch('http://localhost:8080/api/dashboard/telemetry/history?window=24h')
+        const r = await fetch(apiUrl('/dashboard/telemetry/history?window=24h'))
         if (r.ok) {
           const d = await r.json()
           const history = (d.history || []).map(x => ({
@@ -199,7 +219,7 @@ export default function Dashboard() {
     setIsSavingPrice(true)
     try {
       const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken')
-      const r = await fetch('http://localhost:8080/api/dashboard/energy-price', {
+      const r = await fetch(apiUrl('/dashboard/energy-price'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ energyPrice })
@@ -370,7 +390,12 @@ export default function Dashboard() {
                         minTickGap={24}
                         tickFormatter={formatTrendTick}
                       />
-                      <YAxis tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }} axisLine={false} tickLine={false} />
+                      <YAxis
+                        domain={getTrendDomain(telemetryData, key)}
+                        tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
                       <Tooltip contentStyle={{ backgroundColor: C.bg2, borderColor: C.border, borderRadius: 4, color: C.text, fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }} labelStyle={{ color: C.text2, marginBottom: 4 }} />
                       <Line type="monotone" dataKey={key} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                     </LineChart>
