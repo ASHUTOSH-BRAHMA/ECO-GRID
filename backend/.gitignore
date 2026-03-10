@@ -1,0 +1,16 @@
+node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Secrets and credentials
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+secrets/
+credentials/

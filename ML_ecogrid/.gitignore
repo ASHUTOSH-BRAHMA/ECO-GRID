@@ -1,0 +1,30 @@
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets and credentials
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+secrets/
+credentials/
+
+# Python cache and local output
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log

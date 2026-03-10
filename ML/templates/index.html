@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRID·SIGHT — Energy Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  /* ── TOKENS ─────────────────────────────────────────────────── */
+  :root {
+    --bg:        #05080f;
+    --surface:   #0b1120;
+    --panel:     #0f1a2e;
+    --border:    rgba(99,179,255,.12);
+    --accent:    #00e5ff;
+    --accent2:   #ff6b35;
+    --accent3:   #39ff14;
+    --text:      #dce8ff;
+    --muted:     #5a7099;
+    --danger:    #ff4d6d;
+    --font-head: 'Syne', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+    --glow:      0 0 40px rgba(0,229,255,.15);
+  }
+
+  /* ── RESET ───────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.6;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  /* ── BACKGROUND GRID ─────────────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── SCANLINE ────────────────────────────────────────────────── */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,.08) 2px,
+      rgba(0,0,0,.08) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── LAYOUT ──────────────────────────────────────────────────── */
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  /* ── HEADER ──────────────────────────────────────────────────── */
+  header {
+    padding: 48px 0 32px;
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 56px;
+  }
+  .logo {
+    font-family: var(--font-head);
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: .15em;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,229,255,.6);
+  }
+  .logo span { color: var(--muted); font-weight: 400; }
+  .tagline {
+    font-size: 11px;
+    letter-spacing: .2em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .status-dot {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .1em;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent3);
+    box-shadow: 0 0 8px var(--accent3);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: .5; transform: scale(.8); }
+  }
+
+  /* ── SEARCH ──────────────────────────────────────────────────── */
+  .search-zone {
+    max-width: 640px;
+    margin: 0 auto 64px;
+  }
+  .search-label {
+    font-family: var(--font-head);
+    font-size: 11px;
+    letter-spacing: .25em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .search-row {
+    display: flex;
+    gap: 12px;
+  }
+  .search-input {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    padding: 14px 20px;
+    outline: none;
+    border-radius: 4px;
+    transition: border-color .2s, box-shadow .2s;
+    caret-color: var(--accent);
+  }
+  .search-input::placeholder { color: var(--muted); }
+  .search-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), var(--glow);
+  }
+  .search-btn {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    font-family: var(--font-head);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: .1em;
+    padding: 14px 28px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: opacity .2s, box-shadow .2s;
+  }
+  .search-btn:hover { opacity: .85; box-shadow: 0 0 20px rgba(0,229,255,.4); }
+  .search-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ── ERROR ───────────────────────────────────────────────────── */
+  .error-box {
+    background: rgba(255,77,109,.1);
+    border: 1px solid rgba(255,77,109,.4);
+    color: #ff8fa3;
+    padding: 14px 20px;
+    border-radius: 4px;
+    margin-top: 16px;
+    font-size: 13px;
+    display: none;
+  }
+
+  /* ── LOADING ─────────────────────────────────────────────────── */
+  .loader {
+    display: none;
+    text-align: center;
+    padding: 80px 0;
+  }
+  .loader-ring {
+    width: 56px; height: 56px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    margin: 0 auto 20px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-text {
+    font-size: 11px;
+    letter-spacing: .2em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  /* ── RESULTS ─────────────────────────────────────────────────── */
+  #results { display: none; }
+
+  .city-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .city-name {
+    font-family: var(--font-head);
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: .05em;
+  }
+  .city-coords {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .1em;
+    margin-top: 4px;
+  }
+  .forecast-badge {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 10px 20px;
+    border-radius: 40px;
+    font-size: 11px;
+    letter-spacing: .15em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  /* ── KPI CARDS ───────────────────────────────────────────────── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+  @media (max-width: 768px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .kpi-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--kpi-color, var(--accent));
+    box-shadow: 0 0 12px var(--kpi-color, var(--accent));
+  }
+  .kpi-card:hover { border-color: var(--kpi-color, var(--accent)); }
+  .kpi-label {
+    font-size: 10px;
+    letter-spacing: .2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .kpi-value {
+    font-family: var(--font-head);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--kpi-color, var(--accent));
+  }
+  .kpi-unit { font-size: 13px; font-weight: 400; opacity: .7; margin-left: 4px; }
+  .kpi-sub  { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  /* ── CHART SECTION ───────────────────────────────────────────── */
+  .section-title {
+    font-family: var(--font-head);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .25em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .chart-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 28px;
+    margin-bottom: 48px;
+  }
+  .chart-wrap { position: relative; height: 280px; }
+
+  /* ── TOGGLE TABS ─────────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px;
+    width: fit-content;
+  }
+  .tab {
+    padding: 8px 20px;
+    font-family: var(--font-head);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    transition: all .2s;
+  }
+  .tab.active {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  /* ── DAILY TABLE ─────────────────────────────────────────────── */
+  .day-cards {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin-bottom: 48px;
+  }
+  @media (max-width: 900px) {
+    .day-cards { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .day-cards { grid-template-columns: 1fr 1fr; }
+  }
+  .day-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 18px;
+    transition: transform .15s, border-color .15s;
+  }
+  .day-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(0,229,255,.3);
+  }
+  .day-label {
+    font-family: var(--font-head);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .day-date {
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: .1em;
+    margin-bottom: 14px;
+  }
+  .day-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    font-size: 12px;
+  }
+  .day-row:last-child { border-bottom: none; }
+  .day-row .dval {
+    font-family: var(--font-head);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .surplus-pos { color: var(--accent3); }
+  .surplus-neg { color: var(--danger); }
+  .price-val   { color: var(--accent2); }
+
+  /* ── PRICE BANNER ────────────────────────────────────────────── */
+  .price-banner {
+    background: linear-gradient(135deg, rgba(255,107,53,.1) 0%, rgba(255,107,53,.03) 100%);
+    border: 1px solid rgba(255,107,53,.3);
+    border-radius: 6px;
+    padding: 24px 28px;
+    margin-bottom: 48px;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+  .price-icon {
+    font-size: 36px;
+    line-height: 1;
+  }
+  .price-info h3 {
+    font-family: var(--font-head);
+    font-size: 13px;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    color: var(--accent2);
+    margin-bottom: 6px;
+  }
+  .price-info p {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+
+  /* ── FOOTER ──────────────────────────────────────────────────── */
+  footer {
+    text-align: center;
+    padding: 32px 0;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .1em;
+  }
+
+  /* ── ANIMATIONS ──────────────────────────────────────────────── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fadeUp .5s ease both; }
+  .fade-in-1 { animation-delay: .05s; }
+  .fade-in-2 { animation-delay: .1s; }
+  .fade-in-3 { animation-delay: .15s; }
+  .fade-in-4 { animation-delay: .2s; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">GRID<span>·</span>SIGHT</div>
+    <div class="tagline">AI Energy Intelligence Platform</div>
+    <div class="status-dot">
+      <div class="dot"></div>
+      MODELS READY
+    </div>
+  </header>
+
+  <!-- SEARCH -->
+  <div class="search-zone">
+    <div class="search-label">// enter city to analyse</div>
+    <div class="search-row">
+      <input
+        type="text"
+        class="search-input"
+        id="cityInput"
+        placeholder="e.g. Mumbai, Berlin, New York…"
+        autocomplete="off"
+      >
+      <button class="search-btn" id="searchBtn" onclick="runForecast()">
+        ANALYSE →
+      </button>
+    </div>
+    <div class="error-box" id="errorBox"></div>
+  </div>
+
+  <!-- LOADER -->
+  <div class="loader" id="loader">
+    <div class="loader-ring"></div>
+    <div class="loader-text">FETCHING WEATHER · RUNNING INFERENCE</div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results">
+
+    <!-- CITY HEADER -->
+    <div class="city-header fade-in">
+      <div>
+        <div class="city-name" id="cityTitle">—</div>
+        <div class="city-coords" id="cityCoords">—</div>
+      </div>
+      <div class="forecast-badge">5-Day AI Forecast</div>
+    </div>
+
+    <!-- KPI CARDS -->
+    <div class="kpi-grid fade-in fade-in-1" id="kpiGrid">
+      <div class="kpi-card" style="--kpi-color: var(--accent)">
+        <div class="kpi-label">Avg Demand</div>
+        <div class="kpi-value" id="kpiDemand">—<span class="kpi-unit">kWh</span></div>
+        <div class="kpi-sub">5-day daily average</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color: var(--accent3)">
+        <div class="kpi-label">Avg Production</div>
+        <div class="kpi-value" id="kpiProd">—<span class="kpi-unit">kWh</span></div>
+        <div class="kpi-sub">5-day daily average</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color: #a78bfa">
+        <div class="kpi-label">Net Surplus</div>
+        <div class="kpi-value" id="kpiSurplus">—<span class="kpi-unit">kWh</span></div>
+        <div class="kpi-sub">Produced – Demand</div>
+      </div>
+      <div class="kpi-card" style="--kpi-color: var(--accent2)">
+        <div class="kpi-label">Dynamic Price</div>
+        <div class="kpi-value" id="kpiPrice">—<span class="kpi-unit">$/kWh</span></div>
+        <div class="kpi-sub">Avg adjusted price</div>
+      </div>
+    </div>
+
+    <!-- CHART -->
+    <div class="section-title fade-in fade-in-2">Energy Forecast Overview</div>
+    <div class="chart-panel fade-in fade-in-2">
+      <div class="tabs">
+        <button class="tab active" onclick="switchChart('daily')">DAILY</button>
+        <button class="tab" onclick="switchChart('hourly')">HOURLY</button>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="mainChart"></canvas>
+      </div>
+    </div>
+
+    <!-- PRICE CHART -->
+    <div class="section-title fade-in fade-in-3">Dynamic Pricing Signal</div>
+    <div class="chart-panel fade-in fade-in-3">
+      <div class="chart-wrap">
+        <canvas id="priceChart"></canvas>
+      </div>
+    </div>
+
+    <!-- DYNAMIC PRICE EXPLANATION -->
+    <div class="price-banner fade-in fade-in-3">
+      <div class="price-icon">⚡</div>
+      <div class="price-info">
+        <h3>Dynamic Pricing Logic</h3>
+        <p>
+          Prices adjust automatically based on AI-predicted supply &amp; demand balance.
+          A surplus &gt;30% drives prices down to ~75% of base.
+          A deficit &gt;20% pushes prices up to ~135% of base.
+          Use low-price windows to shift high-consumption loads for maximum savings.
+        </p>
+      </div>
+    </div>
+
+    <!-- DAILY CARDS -->
+    <div class="section-title fade-in fade-in-4">Day-by-Day Breakdown</div>
+    <div class="day-cards fade-in fade-in-4" id="dayCards"></div>
+
+  </div><!-- /results -->
+
+  <footer>GRID·SIGHT v1.0 · Powered by LSTM Neural Networks + OpenWeatherMap · For operational use only</footer>
+</div><!-- /wrapper -->
+
+<script>
+/* ────────────────────────────────────────────────────────────── */
+/* State & Chart references                                       */
+/* ────────────────────────────────────────────────────────────── */
+let mainChart  = null;
+let priceChart = null;
+let appData    = null;
+let chartMode  = 'daily';
+
+/* ────────────────────────────────────────────────────────────── */
+/* Fetch + render                                                  */
+/* ────────────────────────────────────────────────────────────── */
+async function runForecast() {
+  const city = document.getElementById('cityInput').value.trim();
+  if (!city) return;
+
+  showLoader(true);
+  hideResults();
+  hideError();
+
+  try {
+    const res = await fetch('/predict', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ city }),
+    });
+    const json = await res.json();
+
+    if (!res.ok) {
+      showError(json.error || 'Unknown error');
+      return;
+    }
+
+    appData = json;
+    renderResults(json);
+  } catch (e) {
+    showError('Network error — is the Flask server running?');
+  } finally {
+    showLoader(false);
+  }
+}
+
+document.getElementById('cityInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') runForecast();
+});
+
+/* ────────────────────────────────────────────────────────────── */
+/* Render                                                          */
+/* ────────────────────────────────────────────────────────────── */
+function renderResults(data) {
+  const { city, daily, hourly } = data;
+
+  /* City header */
+  document.getElementById('cityTitle').textContent =
+    `${city.name}, ${city.country}`;
+  document.getElementById('cityCoords').textContent =
+    `${city.lat.toFixed(4)}°N  ${city.lon.toFixed(4)}°E`;
+
+  /* KPIs */
+  const avgDemand   = avg(daily.map(d => d.demand));
+  const avgProduced = avg(daily.map(d => d.produced));
+  const avgSurplus  = avg(daily.map(d => d.surplus));
+  const avgPrice    = avg(daily.map(d => d.price));
+
+  document.getElementById('kpiDemand').innerHTML  = `${fmt(avgDemand)}<span class="kpi-unit">kWh</span>`;
+  document.getElementById('kpiProd').innerHTML    = `${fmt(avgProduced)}<span class="kpi-unit">kWh</span>`;
+  document.getElementById('kpiSurplus').innerHTML = `${fmt(avgSurplus)}<span class="kpi-unit">kWh</span>`;
+  document.getElementById('kpiPrice').innerHTML   = `${avgPrice.toFixed(4)}<span class="kpi-unit">$/kWh</span>`;
+
+  /* Charts */
+  buildMainChart(daily, hourly);
+  buildPriceChart(daily, hourly);
+
+  /* Day cards */
+  buildDayCards(daily);
+
+  document.getElementById('results').style.display = 'block';
+}
+
+/* ── Chart helpers ─────────────────────────────────────────────── */
+const CHART_DEFAULTS = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      labels: {
+        color: '#5a7099',
+        font: { family: "'DM Mono', monospace", size: 11 },
+        boxWidth: 14,
+      }
+    },
+    tooltip: {
+      backgroundColor: '#0b1120',
+      borderColor: 'rgba(0,229,255,.2)',
+      borderWidth: 1,
+      titleColor: '#dce8ff',
+      bodyColor:  '#5a7099',
+      padding: 12,
+    }
+  },
+  scales: {
+    x: {
+      grid:  { color: 'rgba(99,179,255,.06)' },
+      ticks: { color: '#5a7099', font: { family: "'DM Mono', monospace", size: 11 } }
+    },
+    y: {
+      grid:  { color: 'rgba(99,179,255,.06)' },
+      ticks: { color: '#5a7099', font: { family: "'DM Mono', monospace", size: 11 } }
+    }
+  }
+};
+
+function buildMainChart(daily, hourly) {
+  if (mainChart) mainChart.destroy();
+
+  const src    = chartMode === 'daily' ? daily : hourly;
+  const labels = chartMode === 'daily'
+    ? src.map(d => fmtDate(d.date))
+    : src.map(d => `${d.date.slice(5)} ${String(d.hour).padStart(2,'0')}h`);
+
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  mainChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Demand (kWh)',
+          data:  src.map(d => d.demand),
+          borderColor: '#00e5ff',
+          backgroundColor: 'rgba(0,229,255,.07)',
+          fill: true,
+          tension: .4,
+          borderWidth: 2,
+          pointRadius: chartMode === 'daily' ? 4 : 2,
+          pointBackgroundColor: '#00e5ff',
+        },
+        {
+          label: 'Produced (kWh)',
+          data:  src.map(d => d.produced),
+          borderColor: '#39ff14',
+          backgroundColor: 'rgba(57,255,20,.05)',
+          fill: true,
+          tension: .4,
+          borderWidth: 2,
+          pointRadius: chartMode === 'daily' ? 4 : 2,
+          pointBackgroundColor: '#39ff14',
+        },
+        {
+          label: 'Surplus (kWh)',
+          data:  src.map(d => d.surplus),
+          borderColor: '#a78bfa',
+          backgroundColor: 'transparent',
+          tension: .4,
+          borderWidth: 2,
+          borderDash: [6, 4],
+          pointRadius: 0,
+        },
+      ]
+    },
+    options: CHART_DEFAULTS
+  });
+}
+
+function buildPriceChart(daily, hourly) {
+  if (priceChart) priceChart.destroy();
+
+  const src    = chartMode === 'daily' ? daily : hourly;
+  const labels = chartMode === 'daily'
+    ? src.map(d => fmtDate(d.date))
+    : src.map(d => `${d.date.slice(5)} ${String(d.hour).padStart(2,'0')}h`);
+
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  priceChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Dynamic Price ($/kWh)',
+        data:  src.map(d => d.price),
+        backgroundColor: src.map(d =>
+          d.price < 0.10 ? 'rgba(57,255,20,.55)'  :
+          d.price < 0.14 ? 'rgba(0,229,255,.55)'  :
+          d.price < 0.18 ? 'rgba(255,200,0,.55)'  :
+                           'rgba(255,77,109,.55)'
+        ),
+        borderColor: 'transparent',
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      scales: {
+        ...CHART_DEFAULTS.scales,
+        y: {
+          ...CHART_DEFAULTS.scales.y,
+          ticks: {
+            ...CHART_DEFAULTS.scales.y.ticks,
+            callback: v => `$${v.toFixed(3)}`
+          }
+        }
+      }
+    }
+  });
+}
+
+function switchChart(mode) {
+  chartMode = mode;
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', (i === 0 && mode === 'daily') || (i === 1 && mode === 'hourly'));
+  });
+  if (appData) {
+    buildMainChart(appData.daily, appData.hourly);
+    buildPriceChart(appData.daily, appData.hourly);
+  }
+}
+
+function buildDayCards(daily) {
+  const container = document.getElementById('dayCards');
+  const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+
+  container.innerHTML = daily.map((d, i) => {
+    const dt  = new Date(d.date + 'T12:00:00');
+    const day = days[dt.getDay()];
+    const surplus_cls = d.surplus >= 0 ? 'surplus-pos' : 'surplus-neg';
+
+    return `
+    <div class="day-card">
+      <div class="day-label">${day}</div>
+      <div class="day-date">${d.date}</div>
+      <div class="day-row">
+        <span style="color:var(--muted)">Demand</span>
+        <span class="dval" style="color:var(--accent)">${fmt(d.demand)} kWh</span>
+      </div>
+      <div class="day-row">
+        <span style="color:var(--muted)">Produced</span>
+        <span class="dval" style="color:var(--accent3)">${fmt(d.produced)} kWh</span>
+      </div>
+      <div class="day-row">
+        <span style="color:var(--muted)">Surplus</span>
+        <span class="dval ${surplus_cls}">${fmt(d.surplus)} kWh</span>
+      </div>
+      <div class="day-row">
+        <span style="color:var(--muted)">Price</span>
+        <span class="dval price-val">$${d.price.toFixed(4)}</span>
+      </div>
+      <div class="day-row">
+        <span style="color:var(--muted)">Temp</span>
+        <span class="dval" style="color:#facc15">${d.temp}°C</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── UI helpers ─────────────────────────────────────────────────── */
+function showLoader(v) {
+  document.getElementById('loader').style.display    = v ? 'block' : 'none';
+  document.getElementById('searchBtn').disabled      = v;
+}
+function hideResults() { document.getElementById('results').style.display = 'none'; }
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent    = '⚠ ' + msg;
+  box.style.display  = 'block';
+}
+function hideError() { document.getElementById('errorBox').style.display = 'none'; }
+
+/* ── Formatters ─────────────────────────────────────────────────── */
+function avg(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+function fmt(n)   { return n.toFixed(1); }
+function fmtDate(s) {
+  const d = new Date(s + 'T12:00:00');
+  return d.toLocaleDateString('en-GB', { weekday:'short', month:'short', day:'numeric' });
+}
+</script>
+</body>
+</html>

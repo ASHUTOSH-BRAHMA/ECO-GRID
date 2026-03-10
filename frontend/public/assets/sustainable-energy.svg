@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" fill="none">
+  <rect width="800" height="600" fill="url(#energyBg)"/>
+  
+  <!-- Sun -->
+  <circle cx="650" cy="100" r="50" fill="#fbbf24" opacity="0.9"/>
+  <g stroke="#fbbf24" stroke-width="3" opacity="0.6">
+    <line x1="650" y1="30" x2="650" y2="10"/>
+    <line x1="650" y1="170" x2="650" y2="190"/>
+    <line x1="580" y1="100" x2="560" y2="100"/>
+    <line x1="720" y1="100" x2="740" y2="100"/>
+    <line x1="600" y1="50" x2="585" y2="35"/>
+    <line x1="700" y1="150" x2="715" y2="165"/>
+    <line x1="600" y1="150" x2="585" y2="165"/>
+    <line x1="700" y1="50" x2="715" y2="35"/>
+  </g>
+  
+  <!-- Wind Turbines -->
+  <g fill="white" opacity="0.8">
+    <rect x="150" y="350" width="8" height="150" rx="2"/>
+    <ellipse cx="154" cy="350" rx="50" ry="8" transform="rotate(-30 154 350)"/>
+    <ellipse cx="154" cy="350" rx="50" ry="8" transform="rotate(90 154 350)"/>
+    <ellipse cx="154" cy="350" rx="50" ry="8" transform="rotate(210 154 350)"/>
+    <circle cx="154" cy="350" r="8"/>
+  </g>
+  
+  <g fill="white" opacity="0.6">
+    <rect x="250" y="380" width="6" height="120" rx="2"/>
+    <ellipse cx="253" cy="380" rx="40" ry="6" transform="rotate(-30 253 380)"/>
+    <ellipse cx="253" cy="380" rx="40" ry="6" transform="rotate(90 253 380)"/>
+    <ellipse cx="253" cy="380" rx="40" ry="6" transform="rotate(210 253 380)"/>
+    <circle cx="253" cy="380" r="6"/>
+  </g>
+  
+  <!-- Solar Panels -->
+  <g fill="#1e3a5f" opacity="0.8">
+    <rect x="450" y="420" width="100" height="60" rx="3" transform="rotate(-15 450 420)"/>
+    <rect x="560" y="430" width="100" height="60" rx="3" transform="rotate(-15 560 430)"/>
+    <rect x="505" y="450" width="100" height="60" rx="3" transform="rotate(-15 505 450)"/>
+  </g>
+  
+  <!-- Grid lines on panels -->
+  <g stroke="white" stroke-width="1" opacity="0.3">
+    <line x1="460" y1="425" x2="540" y2="410"/>
+    <line x1="465" y1="445" x2="545" y2="430"/>
+    <line x1="470" y1="465" x2="550" y2="450"/>
+  </g>
+  
+  <!-- Ground -->
+  <ellipse cx="400" cy="550" rx="350" ry="40" fill="#059669" opacity="0.5"/>
+  
+  <!-- Lightning bolt energy symbol -->
+  <path d="M400 200 L430 280 H410 L425 350 L370 260 H395 L380 200 Z" fill="#fbbf24" opacity="0.7"/>
+  
+  <defs>
+    <linearGradient id="energyBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#064e3b"/>
+      <stop offset="50%" style="stop-color:#065f46"/>
+      <stop offset="100%" style="stop-color:#047857"/>
+    </linearGradient>
+  </defs>
+</svg>

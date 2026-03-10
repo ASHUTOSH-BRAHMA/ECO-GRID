@@ -1,0 +1,3 @@
+demand: (None, 24, 15)
+price: (None, 24, 16)
+produced: (None, 24, 15)

@@ -1,0 +1,77 @@
+{
+  "lookback": 24,
+  "forecast_steps": 72,
+  "feature_cols": [
+    "windspeed_10m",
+    "winddirection_10m",
+    "temperature_2m",
+    "relativehumidity_2m",
+    "precipitation",
+    "cloudcover",
+    "shortwave_radiation",
+    "direct_normal_irradiance",
+    "diffuse_radiation",
+    "surface_pressure",
+    "hour",
+    "day",
+    "month",
+    "dayofweek",
+    "is_weekend",
+    "is_holiday",
+    "zone_id",
+    "latitude",
+    "longitude",
+    "urban",
+    "solar_gen_gw",
+    "wind_gen_gw",
+    "hydro_gen_gw",
+    "thermal_gen_gw",
+    "surplus_deficit_gw",
+    "total_supply_gw_lag1h",
+    "total_supply_gw_lag2h",
+    "total_supply_gw_lag3h",
+    "total_supply_gw_lag6h",
+    "total_supply_gw_lag12h",
+    "total_supply_gw_lag24h",
+    "demand_gw_lag1h",
+    "demand_gw_lag2h",
+    "demand_gw_lag3h",
+    "demand_gw_lag6h",
+    "demand_gw_lag12h",
+    "demand_gw_lag24h",
+    "price_inr_kwh_lag1h",
+    "price_inr_kwh_lag2h",
+    "price_inr_kwh_lag3h",
+    "price_inr_kwh_lag6h",
+    "price_inr_kwh_lag12h",
+    "price_inr_kwh_lag24h",
+    "total_supply_gw_roll6h",
+    "total_supply_gw_roll24h",
+    "demand_gw_roll6h",
+    "demand_gw_roll24h",
+    "price_inr_kwh_roll6h",
+    "price_inr_kwh_roll24h"
+  ],
+  "target_cols": [
+    "total_supply_gw",
+    "demand_gw",
+    "price_inr_kwh"
+  ],
+  "metrics": {
+    "total_supply_gw": {
+      "MAE": 3.2941,
+      "RMSE": 4.0901,
+      "MAPE": 6.72
+    },
+    "demand_gw": {
+      "MAE": 3.1357,
+      "RMSE": 3.8803,
+      "MAPE": 6.93
+    },
+    "price_inr_kwh": {
+      "MAE": 0.468,
+      "RMSE": 0.5546,
+      "MAPE": 10.67
+    }
+  }
+}

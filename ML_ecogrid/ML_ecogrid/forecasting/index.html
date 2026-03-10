@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EcoGrid — Energy Forecasting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+:root {
+  --bg:        #060810;
+  --bg2:       #0c0f1a;
+  --bg3:       #111525;
+  --border:    #1e2440;
+  --border2:   #2a3155;
+  --text:      #e8eaf6;
+  --text2:     #8892b0;
+  --text3:     #4a5568;
+  --green:     #00e5a0;
+  --green2:    #00b37a;
+  --red:       #ff4d6d;
+  --red2:      #cc2244;
+  --yellow:    #ffd166;
+  --blue:      #4d9fff;
+  --blue2:     #1a6bcc;
+  --accent:    #7c3aed;
+  --accent2:   #5b21b6;
+  --solar:     #ffd166;
+  --wind:      #4d9fff;
+  --hydro:     #00e5a0;
+  --thermal:   #ff6b6b;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  overflow-x: hidden;
+  cursor: crosshair;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── HEADER ── */
+header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  height: 52px;
+  background: rgba(6,8,16,0.92);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 24px;
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.logo {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800; font-size: 16px;
+  color: var(--green);
+  letter-spacing: -0.5px;
+}
+.logo span { color: var(--text2); font-weight: 400; }
+.breadcrumb { color: var(--text3); font-size: 11px; }
+.breadcrumb span { color: var(--text2); }
+
+.header-right { display: flex; align-items: center; gap: 20px; }
+.live-badge {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; color: var(--green);
+  letter-spacing: 1px; text-transform: uppercase;
+}
+.live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; transform: scale(1); }
+  50% { opacity:0.4; transform: scale(0.8); }
+}
+.last-update { color: var(--text3); font-size: 10px; }
+#update-time { color: var(--text2); }
+
+.time-filter { display: flex; gap: 2px; }
+.tf-btn {
+  padding: 4px 10px; border: 1px solid var(--border);
+  background: transparent; color: var(--text2);
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  cursor: pointer; transition: all 0.15s;
+  border-radius: 3px;
+}
+.tf-btn:hover { border-color: var(--green); color: var(--green); }
+.tf-btn.active { background: var(--green); border-color: var(--green); color: var(--bg); }
+
+/* ── LAYOUT ── */
+.main-layout {
+  margin-top: 52px;
+  display: grid;
+  grid-template-columns: 320px 1fr 280px;
+  grid-template-rows: auto;
+  min-height: calc(100vh - 52px);
+  gap: 0;
+}
+
+/* ── LEFT PANEL ── */
+.left-panel {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 14px;
+  overflow-y: auto;
+  animation: slideIn 0.4s ease;
+}
+@keyframes slideIn { from { opacity:0; transform: translateX(-20px); } to { opacity:1; transform: translateX(0); } }
+
+/* ── CENTER ── */
+.center-panel {
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 14px;
+  overflow-y: auto;
+}
+
+/* ── RIGHT PANEL ── */
+.right-panel {
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 14px;
+  overflow-y: auto;
+  animation: slideInR 0.4s ease;
+}
+@keyframes slideInR { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
+
+/* ── CARD ── */
+.card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  transition: border-color 0.2s;
+}
+.card:hover { border-color: var(--border2); }
+
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.card-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 11px; font-weight: 600;
+  color: var(--text2);
+  letter-spacing: 1.5px; text-transform: uppercase;
+}
+.card-badge {
+  font-size: 9px; padding: 2px 6px;
+  border-radius: 2px; letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.badge-green { background: rgba(0,229,160,0.12); color: var(--green); border: 1px solid rgba(0,229,160,0.2); }
+.badge-red { background: rgba(255,77,109,0.12); color: var(--red); border: 1px solid rgba(255,77,109,0.2); }
+.badge-yellow { background: rgba(255,209,102,0.12); color: var(--yellow); border: 1px solid rgba(255,209,102,0.2); }
+.badge-blue { background: rgba(77,159,255,0.12); color: var(--blue); border: 1px solid rgba(77,159,255,0.2); }
+
+/* ── ZONE MAP ── */
+#map {
+  height: 220px; border-radius: 4px;
+  border: 1px solid var(--border);
+  filter: brightness(0.9) saturate(0.8);
+}
+.leaflet-container { background: #0a0d1a !important; }
+
+/* ── ZONE SELECTOR ── */
+.zone-selector { display: flex; flex-direction: column; gap: 6px; }
+.zone-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: transparent;
+}
+.zone-item:hover { border-color: var(--border2); background: rgba(255,255,255,0.02); }
+.zone-item.active { border-color: var(--green); background: rgba(0,229,160,0.06); }
+.zone-name { font-family: 'Syne', sans-serif; font-size: 12px; font-weight: 600; }
+.zone-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.zone-price { font-size: 12px; color: var(--yellow); }
+.zone-status {
+  font-size: 9px; padding: 1px 5px;
+  border-radius: 2px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.status-surplus { background: rgba(0,229,160,0.1); color: var(--green); }
+.status-deficit { background: rgba(255,77,109,0.1); color: var(--red); }
+.zone-dot { width:8px; height:8px; border-radius:50%; margin-right:8px; flex-shrink:0; }
+
+/* ── KPI STRIP ── */
+.kpi-strip {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.kpi-box {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  text-align: center;
+}
+.kpi-label { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.kpi-value { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; }
+.kpi-unit { font-size: 9px; color: var(--text2); margin-top: 2px; }
+.kpi-change { font-size: 10px; margin-top: 3px; }
+.change-up { color: var(--red); }
+.change-down { color: var(--green); }
+
+/* ── CHARTS ── */
+.chart-wrap { position: relative; }
+.chart-loading {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg3); border-radius: 4px;
+  font-size: 11px; color: var(--text3);
+  z-index: 10;
+  transition: opacity 0.3s;
+}
+.chart-loading.hidden { opacity: 0; pointer-events: none; }
+
+/* ── ALERTS ── */
+.alerts-list { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; }
+.alert-item {
+  padding: 10px 12px;
+  border-radius: 4px;
+  border-left: 3px solid;
+  animation: alertIn 0.3s ease;
+}
+@keyframes alertIn { from { opacity:0; transform: translateX(-10px); } to { opacity:1; transform:translateX(0); } }
+.alert-high { background: rgba(255,77,109,0.08); border-color: var(--red); }
+.alert-medium { background: rgba(255,209,102,0.08); border-color: var(--yellow); }
+.alert-low { background: rgba(0,229,160,0.08); border-color: var(--green); }
+.alert-type { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+.alert-high .alert-type { color: var(--red); }
+.alert-medium .alert-type { color: var(--yellow); }
+.alert-low .alert-type { color: var(--green); }
+.alert-msg { font-size: 11px; color: var(--text); line-height: 1.4; }
+.alert-time { font-size: 9px; color: var(--text3); margin-top: 3px; }
+
+/* ── BUY/SELL WINDOWS ── */
+.signal-strip { display: flex; flex-direction: column; gap: 6px; }
+.signal-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 10px; border-radius: 3px;
+}
+.signal-buy { background: rgba(0,229,160,0.06); border: 1px solid rgba(0,229,160,0.15); }
+.signal-sell { background: rgba(255,77,109,0.06); border: 1px solid rgba(255,77,109,0.15); }
+.signal-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
+.signal-buy .signal-label { color: var(--green); }
+.signal-sell .signal-label { color: var(--red); }
+.signal-time { font-size: 10px; color: var(--text2); }
+.signal-price { font-size: 12px; font-weight: 500; }
+.signal-buy .signal-price { color: var(--green); }
+.signal-sell .signal-price { color: var(--red); }
+
+/* ── DONUT ── */
+.donut-wrap { display: flex; align-items: center; gap: 16px; }
+.donut-legend { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.legend-item { display: flex; align-items: center; gap: 8px; }
+.legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.legend-name { font-size: 11px; color: var(--text2); flex: 1; }
+.legend-pct { font-size: 12px; font-weight: 500; }
+
+/* ── VOLATILITY GAUGE ── */
+.gauge-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.gauge-value {
+  font-family: 'Syne', sans-serif;
+  font-size: 36px; font-weight: 800;
+  line-height: 1;
+}
+.gauge-label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; }
+.gauge-bar {
+  width: 100%; height: 6px;
+  background: var(--border);
+  border-radius: 3px; overflow: hidden;
+}
+.gauge-fill {
+  height: 100%; border-radius: 3px;
+  transition: width 1s ease;
+  background: linear-gradient(90deg, var(--green), var(--yellow), var(--red));
+}
+
+/* ── WEATHER PANEL ── */
+.weather-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.weather-item {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 8px; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: 4px;
+}
+.weather-label { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; }
+.weather-value { font-size: 14px; color: var(--text); font-weight: 500; }
+.weather-unit { font-size: 9px; color: var(--text2); }
+
+/* ── ZONE COMPARISON TABLE ── */
+.comparison-table { width: 100%; border-collapse: collapse; }
+.comparison-table th {
+  font-size: 9px; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 1px;
+  padding: 6px 8px; text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+.comparison-table th:first-child { text-align: left; }
+.comparison-table td {
+  padding: 8px; font-size: 11px;
+  border-bottom: 1px solid rgba(30,36,64,0.5);
+  text-align: right;
+}
+.comparison-table td:first-child { text-align: left; }
+.comparison-table tr:hover td { background: rgba(255,255,255,0.02); }
+.arb-badge {
+  font-size: 9px; padding: 2px 5px;
+  background: rgba(124,58,237,0.15);
+  color: #a78bfa; border: 1px solid rgba(124,58,237,0.3);
+  border-radius: 2px;
+}
+
+/* ── CARBON ── */
+.carbon-bar-wrap { display: flex; flex-direction: column; gap: 8px; }
+.carbon-zone-row { display: flex; align-items: center; gap: 10px; }
+.carbon-zone-name { font-size: 10px; color: var(--text2); width: 90px; flex-shrink: 0; }
+.carbon-bar-bg { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.carbon-bar-fill { height: 100%; border-radius: 3px; transition: width 1s ease; }
+.carbon-val { font-size: 10px; color: var(--text2); width: 55px; text-align: right; flex-shrink: 0; }
+
+/* ── MODEL METRICS ── */
+.metrics-grid { display: flex; flex-direction: column; gap: 8px; }
+.metric-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; }
+.metric-name { font-size: 11px; color: var(--text2); }
+.metric-vals { display: flex; gap: 12px; }
+.metric-val { text-align: center; }
+.metric-val-label { font-size: 8px; color: var(--text3); text-transform: uppercase; display: block; }
+.metric-val-num { font-size: 12px; color: var(--green); }
+
+/* ── HEATMAP ── */
+#price-heatmap { width: 100%; overflow-x: auto; }
+
+/* ── TABS ── */
+.tab-bar { display: flex; gap: 2px; margin-bottom: 12px; }
+.tab-btn {
+  padding: 5px 12px; border: 1px solid var(--border);
+  background: transparent; color: var(--text2);
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  cursor: pointer; border-radius: 3px; transition: all 0.15s;
+}
+.tab-btn:hover { border-color: var(--border2); color: var(--text); }
+.tab-btn.active { background: var(--bg3); border-color: var(--border2); color: var(--text); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── SKELETON LOADER ── */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg3) 25%, var(--border) 50%, var(--bg3) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 3px;
+}
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+
+/* ── SECTION DIVIDER ── */
+.section-label {
+  font-size: 9px; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 2px;
+  padding: 4px 0; border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+/* ── RESPONSIVE GRID HELPERS ── */
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+/* ── SCROLLBAR inside cards ── */
+.alerts-list::-webkit-scrollbar { width: 2px; }
+.alerts-list::-webkit-scrollbar-thumb { background: var(--border2); }
+
+/* loading overlay */
+#global-loader {
+  position: fixed; inset: 0; z-index: 9999;
+  background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px;
+  transition: opacity 0.5s;
+}
+#global-loader.hidden { opacity: 0; pointer-events: none; }
+.loader-logo { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; color: var(--green); }
+.loader-sub { font-size: 11px; color: var(--text3); letter-spacing: 2px; text-transform: uppercase; }
+.loader-bar { width: 200px; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; }
+.loader-progress { height: 100%; background: var(--green); animation: load 2s ease forwards; }
+@keyframes load { from { width: 0%; } to { width: 100%; } }
+</style>
+</head>
+<body>
+
+<div id="global-loader">
+  <div class="loader-logo">EcoGrid</div>
+  <div class="loader-sub">Initializing Forecasting Engine</div>
+  <div class="loader-bar"><div class="loader-progress"></div></div>
+</div>
+
+<!-- HEADER -->
+<header>
+  <div class="header-left">
+    <div class="logo">EcoGrid <span>/ Forecasting</span></div>
+    <div class="breadcrumb">India Grid · <span id="active-zone-name">Northern</span> Zone</div>
+  </div>
+  <div class="header-right">
+    <div class="time-filter">
+      <button class="tf-btn active" data-hours="24">24H</button>
+      <button class="tf-btn" data-hours="48">48H</button>
+      <button class="tf-btn" data-hours="72">72H</button>
+    </div>
+    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+    <div class="last-update">Updated <span id="update-time">—</span></div>
+  </div>
+</header>
+
+<!-- MAIN LAYOUT -->
+<div class="main-layout">
+
+  <!-- LEFT PANEL -->
+  <div class="left-panel">
+
+    <!-- Map -->
+    <div class="card" style="padding:10px;">
+      <div class="card-header">
+        <div class="card-title">Grid Zones</div>
+        <div class="card-badge badge-green">India</div>
+      </div>
+      <div id="map"></div>
+    </div>
+
+    <!-- Zone Selector -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Select Zone</div>
+      </div>
+      <div class="zone-selector" id="zone-selector">
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Peak Alerts</div>
+        <div class="card-badge badge-red" id="alert-count">0</div>
+      </div>
+      <div class="alerts-list" id="alerts-list">
+        <div class="skeleton" style="height:60px;"></div>
+        <div class="skeleton" style="height:60px;margin-top:6px;"></div>
+      </div>
+    </div>
+
+    <!-- Model Accuracy -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Model Accuracy</div>
+        <div class="card-badge badge-blue">LSTM</div>
+      </div>
+      <div class="metrics-grid" id="metrics-grid">
+        <div class="skeleton" style="height:44px;"></div>
+        <div class="skeleton" style="height:44px;margin-top:6px;"></div>
+        <div class="skeleton" style="height:44px;margin-top:6px;"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CENTER PANEL -->
+  <div class="center-panel">
+
+    <!-- KPI Strip -->
+    <div class="kpi-strip" id="kpi-strip">
+      <div class="kpi-box">
+        <div class="kpi-label">Avg Supply</div>
+        <div class="kpi-value skeleton" id="kpi-supply" style="height:28px;width:80px;margin:auto;"></div>
+        <div class="kpi-unit">GW</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">Avg Demand</div>
+        <div class="kpi-value skeleton" id="kpi-demand" style="height:28px;width:80px;margin:auto;"></div>
+        <div class="kpi-unit">GW</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">Avg Price</div>
+        <div class="kpi-value skeleton" id="kpi-price" style="height:28px;width:80px;margin:auto;"></div>
+        <div class="kpi-unit">₹/kWh</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">Volatility</div>
+        <div class="kpi-value skeleton" id="kpi-vol" style="height:28px;width:80px;margin:auto;"></div>
+        <div class="kpi-unit">Index</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">Carbon</div>
+        <div class="kpi-value skeleton" id="kpi-carbon" style="height:28px;width:80px;margin:auto;"></div>
+        <div class="kpi-unit">gCO₂/kWh</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">Renewable</div>
+        <div class="kpi-value skeleton" id="kpi-ren" style="height:28px;width:80px;margin:auto;"></div>
+        <div class="kpi-unit">% Share</div>
+      </div>
+    </div>
+
+    <!-- Supply vs Demand Forecast -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Supply vs Demand Forecast</div>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <span style="font-size:10px;color:var(--green);">━ Supply</span>
+          <span style="font-size:10px;color:var(--red);">━ Demand</span>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-loading" id="loading-sd">Loading forecast...</div>
+        <div id="chart-supply-demand"></div>
+      </div>
+    </div>
+
+    <!-- Price Forecast -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Price Forecast</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="font-size:10px;color:var(--text3);">₹/kWh · Next <span id="price-hours">72</span>hrs</span>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-loading" id="loading-price">Loading forecast...</div>
+        <div id="chart-price"></div>
+      </div>
+    </div>
+
+    <!-- Generation Breakdown -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Generation Breakdown</div>
+        <div style="display:flex;gap:12px;">
+          <span style="font-size:10px;color:var(--solar);">━ Solar</span>
+          <span style="font-size:10px;color:var(--wind);">━ Wind</span>
+          <span style="font-size:10px;color:var(--hydro);">━ Hydro</span>
+          <span style="font-size:10px;color:var(--thermal);">━ Thermal</span>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-loading" id="loading-gen">Loading...</div>
+        <div id="chart-generation"></div>
+      </div>
+    </div>
+
+    <!-- Price Heatmap -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Price Heatmap · All Zones × 24hrs</div>
+        <div class="card-badge badge-yellow">Bloomberg View</div>
+      </div>
+      <div id="price-heatmap"></div>
+    </div>
+
+    <!-- Hour of Day + Seasonality -->
+    <div class="row2">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Hour of Day Pattern</div>
+        </div>
+        <div id="chart-hourly"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Seasonality</div>
+        </div>
+        <div id="chart-seasonality"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+
+    <!-- Weather Impact -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Weather Now</div>
+        <div class="card-badge badge-blue" id="weather-zone-badge">—</div>
+      </div>
+      <div class="weather-grid" id="weather-grid">
+        <div class="skeleton" style="height:55px;"></div>
+        <div class="skeleton" style="height:55px;"></div>
+        <div class="skeleton" style="height:55px;"></div>
+        <div class="skeleton" style="height:55px;"></div>
+      </div>
+    </div>
+
+    <!-- Renewable Mix -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Renewable Mix</div>
+      </div>
+      <div class="donut-wrap">
+        <div id="chart-donut" style="min-width:120px;"></div>
+        <div class="donut-legend" id="donut-legend"></div>
+      </div>
+    </div>
+
+    <!-- Volatility -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Volatility Index</div>
+      </div>
+      <div class="gauge-wrap">
+        <div class="gauge-value" id="gauge-val" style="color:var(--yellow)">—</div>
+        <div class="gauge-label" id="gauge-label">Loading...</div>
+        <div class="gauge-bar"><div class="gauge-fill" id="gauge-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <!-- Buy/Sell Windows -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Trade Signals</div>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="buy">BUY</button>
+        <button class="tab-btn" data-tab="sell">SELL</button>
+      </div>
+      <div class="tab-content active" id="tab-buy">
+        <div class="signal-strip" id="buy-signals"></div>
+      </div>
+      <div class="tab-content" id="tab-sell">
+        <div class="signal-strip" id="sell-signals"></div>
+      </div>
+    </div>
+
+    <!-- Zone Comparison -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Zone Comparison</div>
+        <div class="card-badge" style="background:rgba(124,58,237,0.12);color:#a78bfa;border:1px solid rgba(124,58,237,0.2);">Arbitrage</div>
+      </div>
+      <table class="comparison-table" id="comparison-table">
+        <thead>
+          <tr>
+            <th>Zone</th>
+            <th>Price</th>
+            <th>Demand</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="comparison-tbody">
+          <tr><td colspan="4"><div class="skeleton" style="height:30px;"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Carbon Intensity -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Carbon Intensity</div>
+        <div class="card-badge badge-green">gCO₂/kWh</div>
+      </div>
+      <div class="carbon-bar-wrap" id="carbon-bars">
+        <div class="skeleton" style="height:16px;"></div>
+        <div class="skeleton" style="height:16px;margin-top:8px;"></div>
+        <div class="skeleton" style="height:16px;margin-top:8px;"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/mockData.js"></script>
+<script src="js/api.js"></script>
+<script src="js/map.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/alerts.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
