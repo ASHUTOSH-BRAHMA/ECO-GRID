@@ -16,6 +16,7 @@ import "react-toastify/dist/ReactToastify.css";
 import MarketplacePage from "./frontend/Marketplace";
 import Profile from "./frontend/Profile";
 import ForgotPasswordPage from "./frontend/Forgotpassword";
+import NotFound from "./frontend/NotFound";
 import PricingPage from "./frontend/Pricingpage";
 import NotificationSystem from "./components/NotificationSystem";
 import { handlesuccess, intermediate } from "../utils";
@@ -57,7 +58,7 @@ const BlockchainEventListener = () => {
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const { isAuthenticated, setisAuthenticated } = useContext(AuthContext);
+  const { isAuthenticated, setisAuthenticated, user } = useContext(AuthContext);
 
   useEffect(() => {
     setTimeout(() => {
@@ -73,13 +74,30 @@ function App() {
     );
   }
 
-  const PrivateRoute = ({ element }) => {
+  const getUserType = () => {
+    return user?.user?.userType || user?.userType || null;
+  };
+
+  // Redirect /dashboard to the role-specific dashboard
+  const DashboardRoute = () => {
+    const type = getUserType();
     if (!isAuthenticated) {
-      // Don't show toast if we just logged out
-      if (sessionStorage.getItem("justLoggedOut") !== "true") {
-        intermediate("Pls Login to access the page");
-      }
+      if (sessionStorage.getItem("justLoggedOut") !== "true") intermediate("Pls Login to access the page");
       return <Navigate to="/" />;
+    }
+    if (type === "consumer") return <Navigate to="/consumer-dashboard" replace />;
+    if (type === "utility") return <Navigate to="/utility-dashboard" replace />;
+    return <Dashboard />; // prosumer / default
+  };
+
+  const PrivateRoute = ({ element, allowedTypes = null }) => {
+    if (!isAuthenticated) {
+      if (sessionStorage.getItem("justLoggedOut") !== "true") intermediate("Pls Login to access the page");
+      return <Navigate to="/" />;
+    }
+    // If the route is type-restricted and user is wrong type, send to their dashboard
+    if (allowedTypes && !allowedTypes.includes(getUserType())) {
+      return <Navigate to="/dashboard" replace />;
     }
     return element;
   };
@@ -87,7 +105,23 @@ function App() {
   return (
     <>
       <Router>
-        <ToastContainer />
+        <ToastContainer
+          theme="dark"
+          position="top-right"
+          autoClose={3000}
+          hideProgressBar={false}
+          newestOnTop
+          closeOnClick
+          pauseOnHover
+          toastStyle={{
+            background: "#0c0f1a",
+            border: "1px solid #1e2440",
+            color: "#e8eaf6",
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: "13px",
+            borderRadius: "6px",
+          }}
+        />
         <NotificationSystem />
         <BlockchainEventListener />
         <RefreshHandler />
@@ -95,9 +129,9 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
-          <Route path="/dashboard" element={<PrivateRoute element={<Dashboard />} />} />
-          <Route path="/consumer-dashboard" element={<PrivateRoute element={<ConsumerDashboard />} />} />
-          <Route path="/utility-dashboard" element={<PrivateRoute element={<UtilityDashboard />} />} />
+          <Route path="/dashboard" element={<DashboardRoute />} />
+          <Route path="/consumer-dashboard" element={<PrivateRoute element={<ConsumerDashboard />} allowedTypes={["consumer", "prosumer"]} />} />
+          <Route path="/utility-dashboard" element={<PrivateRoute element={<UtilityDashboard />} allowedTypes={["utility", "prosumer"]} />} />
           <Route path="/about" element={<AboutUs />} />
 
           {/* Unified Energy Forecast page — covers both /forecast and /prosumer */}
@@ -110,8 +144,8 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/pricing" element={<PricingPage />} />
 
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Catch-all — custom 404 */}
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Router>
     </>

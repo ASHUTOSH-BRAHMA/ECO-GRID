@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AuthContext } from "../Context/AuthContext";
+import { useWallet } from "../Context/WalletContext";
 import NavBar from "./NavBar";
-import { Edit, Save, User, MapPin, Zap, SunIcon, X, Loader2, Mail, UserCheck, Wallet, ExternalLink, Calendar, ChevronRight, Shield, BadgeCheck, BarChart3, TrendingUp, TrendingDown } from 'lucide-react';
+import { Edit, Save, User, MapPin, Zap, SunIcon, X, Loader2, Mail, UserCheck, Wallet, ExternalLink, Calendar, ChevronRight, Shield, BadgeCheck, BarChart3, TrendingUp, TrendingDown, Settings } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 import { handleerror, handlesuccess } from "../../utils";
 import axios from "axios";
@@ -20,13 +21,13 @@ const Profile = () => {
     hasSolarPanels: false,
     email: "",
     userType: "",
-    walletAddress: "" 
+    walletAddress: "",
+    forecastEngine: "grid",
+    forecastZone: "Northern"
   });
-  
-  const [walletAddress, setWalletAddress] = useState("");
-  const [isWalletConnected, setIsWalletConnected] = useState(false);
+
+  const { isConnected, walletAddress, connect, refreshBalances } = useWallet();
   const [isConnecting, setIsConnecting] = useState(false);
-  const [userDisconnected, setUserDisconnected] = useState(false);
   const [activeTab, setActiveTab] = useState("profile");
   const [userStats, setUserStats] = useState({ totalTrades: 0, kwhSold: 0, kwhBought: 0, carbonSaved: 0, recentTx: [] });
   const [tradeAnalytics, setTradeAnalytics] = useState({
@@ -68,12 +69,13 @@ const Profile = () => {
           hasSolarPanels: data.hasSolarPanels || false,
           email: userDoc.email || user?.user?.email || user?.email || "",
           userType: userDoc.userType || user?.user?.userType || user?.userType || "consumer",
-          walletAddress: data.walletAddress || ""
+          walletAddress: data.walletAddress || "",
+          forecastEngine: data.forecastEngine || "grid",
+          forecastZone: data.forecastZone || "Northern"
         });
 
-        if (data.walletAddress) {
-          setWalletAddress(data.walletAddress);
-          setIsWalletConnected(true);
+        if (data.walletAddress && !isConnected) {
+          // Fallback handled by Context now
         }
       } catch (err) {
         setError(err.message);
@@ -112,7 +114,7 @@ const Profile = () => {
             carbonSaved,
             recentTx: txs.slice(0, 3)
           });
-          
+
           // Process analytics data
           const monthlyMap = new Map();
           txs.forEach(tx => {
@@ -130,7 +132,7 @@ const Profile = () => {
               month.spent += Number(tx.amount) || 0;
             }
           });
-          
+
           setTradeAnalytics({
             monthlyData: Array.from(monthlyMap.values()).slice(-6),
             tradeTypeDistribution: [
@@ -150,44 +152,8 @@ const Profile = () => {
     };
     if (user?.user?._id) fetchUserStats();
   }, [user]);
-  
-  // Check if wallet is already connected on component mount
-  useEffect(() => {
-    const checkWalletConnection = async () => {
-      // Check if user has explicitly disconnected
-      const hasDisconnected = localStorage.getItem("walletDisconnected") === "true";
-      
-      // If user explicitly disconnected, don't auto-connect
-      if (hasDisconnected) {
-        setUserDisconnected(true);
-        setIsWalletConnected(false);
-        setWalletAddress("");
-        return;
-      }
-      
-      if (window.ethereum) {
-        try {
-          const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-          if (accounts.length > 0) {
-            setWalletAddress(accounts[0]);
-            setIsWalletConnected(true);
-            
-            // Update form data if profile exists
-            if (profile && (!profile.walletAddress || profile.walletAddress !== accounts[0])) {
-              setFormData(prev => ({
-                ...prev,
-                walletAddress: accounts[0]
-              }));
-            }
-          }
-        } catch (error) {
-          console.error("Error checking wallet connection:", error);
-        }
-      }
-    };
-    
-    checkWalletConnection();
-  }, [profile]);
+
+
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -202,98 +168,59 @@ const Profile = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken");
-      
+
       const response = await api.put(`/user/profile`, formData, {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         }
       });
-      
+
       console.log(response);
       const updatedProfile = response.data;
       setProfile(updatedProfile);
       setIsEditing(false);
       handlesuccess("Profile updated successfully");
     } catch (err) {
-        console.log(err);
+      console.log(err);
       handleerror(err.message);
     } finally {
       setLoading(false);
     }
   };
-  
-  // Connect to Metamask wallet
+
+  // Connect to Metamask wallet via context
   const connectWallet = async () => {
-    if (!window.ethereum) {
-      handleerror("Metamask not detected! Please install Metamask extension.");
-      return;
-    }
-    
-    setIsConnecting(true);
-    
     try {
-      // Clear the disconnected flag when connecting
-      localStorage.removeItem("walletDisconnected");
-      setUserDisconnected(false);
-      
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      setWalletAddress(accounts[0]);
-      setIsWalletConnected(true);
-      
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        walletAddress: accounts[0]
-      }));
-      
+      setIsConnecting(true);
+      await connect();
       handlesuccess("Wallet connected successfully!");
-      
+
       // Save wallet address to profile
       const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken");
-      await api.put(`/user/profile`, { walletAddress: accounts[0] }, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        }
-      });
+      if (walletAddress) {
+        await api.put(`/user/profile`, { walletAddress }, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          }
+        });
+      }
     } catch (error) {
       console.error("Error connecting wallet:", error);
-      handleerror("Failed to connect wallet. Please try again.");
+      handleerror("Failed to connect wallet via Smart Contract UI.");
     } finally {
       setIsConnecting(false);
     }
   };
-  
+
   // Disconnect wallet
   const disconnectWallet = async () => {
     try {
-      // Set disconnected flag in localStorage
-      localStorage.setItem("walletDisconnected", "true");
-      setUserDisconnected(true);
-      
-      setWalletAddress("");
-      setIsWalletConnected(false);
-      
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        walletAddress: ""
-      }));
-      
-      // Save empty wallet address to profile
-      const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken");
-      await api.put(`/user/profile`, { walletAddress: "" }, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      handlesuccess("Wallet disconnected successfully!");
+      // Disconnection is handled by MetaMask extension directly
+      handleerror("Please disconnect your wallet directly from the MetaMask extension.");
     } catch (error) {
       console.error("Error disconnecting wallet:", error);
-      handleerror("Failed to disconnect wallet. Please try again.");
     }
   };
 
@@ -384,11 +311,11 @@ const Profile = () => {
           >
             {/* Profile Header */}
             <div className="bg-[#111525] p-8 text-[#e8eaf6] relative overflow-hidden border-b border-[#1e2440]">
-              
+
               {/* Decorative circles */}
               <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-[#00e5a0] opacity-5 filter blur-[100px]"></div>
               <div className="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-[#4d9fff] opacity-5 filter blur-[100px]"></div>
-              
+
               <div className="relative z-10 flex flex-col md:flex-row md:items-center">
                 <div className="bg-[#0c0f1a] p-1.5 rounded-full mb-4 md:mb-0 md:mr-6 shadow-[0_0_15px_rgba(0,229,160,0.1)] border border-[#1e2440]">
                   <div className="bg-[#111525] rounded-full h-24 w-24 flex items-center justify-center relative overflow-hidden">
@@ -401,32 +328,32 @@ const Profile = () => {
                     <Mail className="h-4 w-4 mr-2" />
                     {user?.user?.email}
                   </p>
-                  
+
                   <div className="flex mt-3 items-center flex-wrap gap-2">
                     <span className={`px-3 py-1 bg-[#1e2440] border border-[#a78bfa]/30 rounded text-xs font-mono uppercase tracking-wider font-bold shadow-sm text-[#a78bfa] flex items-center`}>
                       <BadgeCheck className="h-4 w-4 mr-1" />
                       {user?.user?.userType?.charAt(0).toUpperCase() + user?.user?.userType?.slice(1) || "User"}
                     </span>
-                    
+
                     {!user?.user?.onboardingCompleted && (
                       <span className="px-3 py-1 bg-[#ffb703]/10 border border-[#ffb703]/30 text-[#ffb703] rounded text-xs font-mono uppercase tracking-wider font-bold shadow-sm flex items-center">
                         <Shield className="h-4 w-4 mr-1" />
                         Complete Onboarding
                       </span>
                     )}
-                    
+
                     <span className="px-3 py-1 bg-[#111525] border border-[#1e2440] text-[#8892b0] rounded text-xs font-mono uppercase tracking-wider font-bold shadow-sm flex items-center">
                       <Calendar className="h-4 w-4 mr-1" />
                       {(profile?.user?.createdAt || user?.user?.createdAt || user?.createdAt)
                         ? new Date(profile?.user?.createdAt || user?.user?.createdAt || user?.createdAt).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short'
-                          })
+                          year: 'numeric',
+                          month: 'short'
+                        })
                         : "Unknown"}
                     </span>
                   </div>
                 </div>
-                
+
                 {!isEditing ? (
                   <motion.button
                     onClick={() => setIsEditing(true)}
@@ -450,19 +377,18 @@ const Profile = () => {
                 )}
               </div>
             </div>
-            
+
             {/* Tab Navigation */}
             <div className="border-b border-[#1e2440] bg-[#0c0f1a]">
               <div className="flex space-x-1 px-6 scrollbar-hide overflow-x-auto">
                 <button
                   onClick={() => setActiveTab("profile")}
-                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${
-                    activeTab === "profile" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
-                  }`}
+                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${activeTab === "profile" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
+                    }`}
                 >
                   Profile Information
                   {activeTab === "profile" && (
-                    <motion.div 
+                    <motion.div
                       className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#00e5a0]"
                       layoutId="activeTab"
                     />
@@ -470,13 +396,12 @@ const Profile = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab("wallet")}
-                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${
-                    activeTab === "wallet" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
-                  }`}
+                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${activeTab === "wallet" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
+                    }`}
                 >
                   Wallet
                   {activeTab === "wallet" && (
-                    <motion.div 
+                    <motion.div
                       className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#00e5a0]"
                       layoutId="activeTab"
                     />
@@ -484,13 +409,12 @@ const Profile = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab("energy")}
-                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${
-                    activeTab === "energy" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
-                  }`}
+                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${activeTab === "energy" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
+                    }`}
                 >
                   Energy Statistics
                   {activeTab === "energy" && (
-                    <motion.div 
+                    <motion.div
                       className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#00e5a0]"
                       layoutId="activeTab"
                     />
@@ -498,16 +422,31 @@ const Profile = () => {
                 </button>
                 <button
                   onClick={() => setActiveTab("analytics")}
-                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${
-                    activeTab === "analytics" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
-                  }`}
+                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${activeTab === "analytics" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
+                    }`}
                 >
                   <span className="flex items-center gap-1">
                     <BarChart3 className="w-4 h-4" />
                     Analytics
                   </span>
                   {activeTab === "analytics" && (
-                    <motion.div 
+                    <motion.div
+                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#00e5a0]"
+                      layoutId="activeTab"
+                    />
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab("settings")}
+                  className={`py-4 px-4 font-mono text-xs uppercase tracking-wider transition-colors relative whitespace-nowrap ${activeTab === "settings" ? "text-[#00e5a0] font-bold" : "text-[#8892b0] hover:text-[#e8eaf6]"
+                    }`}
+                >
+                  <span className="flex items-center gap-1">
+                    <Settings className="w-4 h-4" />
+                    Settings
+                  </span>
+                  {activeTab === "settings" && (
+                    <motion.div
                       className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#00e5a0]"
                       layoutId="activeTab"
                     />
@@ -515,7 +454,7 @@ const Profile = () => {
                 </button>
               </div>
             </div>
-            
+
             {/* Profile Content */}
             <div className="p-8">
               {!isEditing ? (
@@ -549,7 +488,7 @@ const Profile = () => {
                               </div>
                             </div>
                           </div>
-                          
+
                           <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] hover:border-[#4d9fff]/50 transition-colors group">
                             <div className="flex items-start">
                               <div className="bg-[#0c0f1a] border border-[#1e2440] p-3 rounded-lg mr-4 group-hover:border-[#4d9fff]/50 transition-colors">
@@ -561,7 +500,7 @@ const Profile = () => {
                               </div>
                             </div>
                           </div>
-                          
+
                           <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] hover:border-[#ffb703]/50 transition-colors group">
                             <div className="flex items-start">
                               <div className="bg-[#0c0f1a] border border-[#1e2440] p-3 rounded-lg mr-4 group-hover:border-[#ffb703]/50 transition-colors">
@@ -573,7 +512,7 @@ const Profile = () => {
                               </div>
                             </div>
                           </div>
-                          
+
                           <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] hover:border-[#00e5a0]/50 transition-colors group">
                             <div className="flex items-start">
                               <div className="bg-[#0c0f1a] border border-[#1e2440] p-3 rounded-lg mr-4 group-hover:border-[#00e5a0]/50 transition-colors">
@@ -585,7 +524,7 @@ const Profile = () => {
                               </div>
                             </div>
                           </div>
-                          
+
                           <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] hover:border-[#ffd166]/50 transition-colors group">
                             <div className="flex items-start">
                               <div className="bg-[#0c0f1a] border border-[#1e2440] p-3 rounded-lg mr-4 group-hover:border-[#ffd166]/50 transition-colors">
@@ -600,7 +539,7 @@ const Profile = () => {
                               </div>
                             </div>
                           </div>
-                          
+
                           <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] hover:border-[#ff4d6d]/50 transition-colors group">
                             <div className="flex items-start">
                               <div className="bg-[#0c0f1a] border border-[#1e2440] p-3 rounded-lg mr-4 group-hover:border-[#ff4d6d]/50 transition-colors">
@@ -611,10 +550,10 @@ const Profile = () => {
                                 <p className="text-lg mt-1 text-[#e8eaf6] font-semibold font-['Syne']">
                                   {(profile?.user?.createdAt || user?.user?.createdAt || user?.createdAt)
                                     ? new Date(profile?.user?.createdAt || user?.user?.createdAt || user?.createdAt).toLocaleDateString('en-US', {
-                                        year: 'numeric',
-                                        month: 'short',
-                                        day: 'numeric'
-                                      })
+                                      year: 'numeric',
+                                      month: 'short',
+                                      day: 'numeric'
+                                    })
                                     : "Unknown"}
                                 </p>
                               </div>
@@ -624,7 +563,7 @@ const Profile = () => {
                       </section>
                     </motion.div>
                   )}
-                  
+
                   {activeTab === "wallet" && (
                     <motion.div
                       key="wallet"
@@ -640,7 +579,7 @@ const Profile = () => {
                           Metamask Wallet
                         </h2>
                         <div className="bg-[#111525] p-8 rounded-xl border border-[#1e2440] shadow-sm">
-                          {isWalletConnected ? (
+                          {isConnected ? (
                             <div className="space-y-6">
                               <div className="flex flex-col md:flex-row md:items-center gap-6">
                                 <div className="bg-[#ffb703]/10 border border-[#ffb703]/30 p-4 rounded-xl shadow-sm">
@@ -653,9 +592,9 @@ const Profile = () => {
                                   </div>
                                 </div>
                               </div>
-                              
+
                               <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                                <a 
+                                <a
                                   href={`https://amoy.polygonscan.com/address/${walletAddress}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
@@ -663,7 +602,7 @@ const Profile = () => {
                                 >
                                   View on Polygonscan <ExternalLink className="h-4 w-4" />
                                 </a>
-                                
+
                                 <motion.button
                                   onClick={disconnectWallet}
                                   className="px-4 py-2 bg-[#ff4d6d]/10 border border-[#ff4d6d]/30 text-[#ff4d6d] rounded-lg flex items-center font-mono text-[10px] uppercase tracking-wider font-bold shadow-sm hover:bg-[#ff4d6d]/20 transition-colors"
@@ -674,7 +613,7 @@ const Profile = () => {
                                   Disconnect Wallet
                                 </motion.button>
                               </div>
-                              
+
                               <div className="bg-[#4d9fff]/5 border border-[#4d9fff]/30 rounded-lg p-4 text-[#4d9fff] text-xs font-mono uppercase tracking-widest leading-relaxed">
                                 <p className="flex items-start">
                                   <Shield className="h-5 w-5 mr-3 mt-0.5 text-[#4d9fff]" />
@@ -693,7 +632,7 @@ const Profile = () => {
                                   <p className="text-[#8892b0] text-sm font-mono">Connect your Metamask wallet to participate in energy trading on the blockchain.</p>
                                 </div>
                               </div>
-                              
+
                               <motion.button
                                 onClick={connectWallet}
                                 disabled={isConnecting}
@@ -713,7 +652,7 @@ const Profile = () => {
                                   </>
                                 )}
                               </motion.button>
-                              
+
                               <div className="bg-[#ffb703]/5 border border-[#ffb703]/30 rounded-lg p-4 text-[#ffb703] text-xs font-mono uppercase tracking-widest leading-relaxed">
                                 <p className="flex items-start">
                                   <Shield className="h-5 w-5 mr-3 mt-0.5 text-[#ffb703]" />
@@ -726,7 +665,7 @@ const Profile = () => {
                       </section>
                     </motion.div>
                   )}
-                  
+
                   {activeTab === "energy" && (
                     <motion.div
                       key="energy"
@@ -741,10 +680,10 @@ const Profile = () => {
                           <Zap className="mr-3 h-5 w-5 text-[#00e5a0]" />
                           Energy Statistics
                         </h2>
-                        
+
                         {/* Main Stats Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                          <motion.div 
+                          <motion.div
                             whileHover={{ scale: 1.02 }}
                             className="bg-[#111525] p-6 rounded-xl text-[#e8eaf6] border border-[#1e2440] shadow-sm hover:border-[#00e5a0]/50 transition-colors"
                           >
@@ -759,8 +698,8 @@ const Profile = () => {
                               </div>
                             </div>
                           </motion.div>
-                          
-                          <motion.div 
+
+                          <motion.div
                             whileHover={{ scale: 1.02 }}
                             className="bg-[#111525] p-6 rounded-xl text-[#e8eaf6] border border-[#1e2440] shadow-sm hover:border-[#ffd166]/50 transition-colors"
                           >
@@ -775,8 +714,8 @@ const Profile = () => {
                               </div>
                             </div>
                           </motion.div>
-                          
-                          <motion.div 
+
+                          <motion.div
                             whileHover={{ scale: 1.02 }}
                             className="bg-[#111525] p-6 rounded-xl text-[#e8eaf6] border border-[#1e2440] shadow-sm hover:border-[#4d9fff]/50 transition-colors"
                           >
@@ -791,8 +730,8 @@ const Profile = () => {
                               </div>
                             </div>
                           </motion.div>
-                          
-                          <motion.div 
+
+                          <motion.div
                             whileHover={{ scale: 1.02 }}
                             className="bg-[#111525] p-6 rounded-xl text-[#e8eaf6] border border-[#1e2440] shadow-sm hover:border-[#a78bfa]/50 transition-colors"
                           >
@@ -808,11 +747,11 @@ const Profile = () => {
                             </div>
                           </motion.div>
                         </div>
-                        
+
                         {/* Energy Breakdown */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                          <div className="bg-[#0c0f1a] p-6 rounded-xl border border-[#1e2440] shadow-sm">
-                            <h3 className="text-sm font-bold text-[#e8eaf6] mb-4 uppercase tracking-wider">Energy Sources</h3>
+                          <div className="bg-[#0c0f1a] p-6 rounded-xl border border-[#1e2440] shadow-sm min-w-0 overflow-hidden">
+                            <h3 className="text-sm font-bold text-[#e8eaf6] mb-4 uppercase tracking-wider">Trading Activity</h3>
                             <div className="space-y-4">
                               <div className="flex items-center justify-between border-b border-[#1e2440] pb-3 last:border-0 last:pb-0">
                                 <div className="flex items-center">
@@ -829,7 +768,7 @@ const Profile = () => {
                                   <p className="text-[10px] text-[#8892b0]">{profile?.hasSolarPanels ? "65%" : "0%"}</p>
                                 </div>
                               </div>
-                              
+
                               <div className="flex items-center justify-between border-b border-[#1e2440] pb-3 last:border-0 last:pb-0">
                                 <div className="flex items-center">
                                   <div className="w-10 h-10 bg-[#4d9fff]/10 border border-[#4d9fff]/30 rounded-full flex items-center justify-center mr-3 shadow-sm">
@@ -845,7 +784,7 @@ const Profile = () => {
                                   <p className="text-[10px] text-[#8892b0]">22%</p>
                                 </div>
                               </div>
-                              
+
                               <div className="flex items-center justify-between border-b border-[#1e2440] pb-3 last:border-0 last:pb-0">
                                 <div className="flex items-center">
                                   <div className="w-10 h-10 bg-[#00e5a0]/10 border border-[#00e5a0]/30 rounded-full flex items-center justify-center mr-3 shadow-sm">
@@ -863,7 +802,7 @@ const Profile = () => {
                               </div>
                             </div>
                           </div>
-                          
+
                           <div className="bg-[#0c0f1a] p-6 rounded-xl border border-[#1e2440] shadow-sm">
                             <h3 className="text-sm font-bold text-[#e8eaf6] mb-4 uppercase tracking-wider">Recent Activity</h3>
                             <div className="space-y-3">
@@ -886,7 +825,7 @@ const Profile = () => {
                             </div>
                           </div>
                         </div>
-                        
+
                         {/* Monthly Progress */}
                         <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm">
                           <h3 className="text-sm font-bold text-[#e8eaf6] mb-4 uppercase tracking-wider">Monthly Energy Goals</h3>
@@ -897,34 +836,34 @@ const Profile = () => {
                                 <span className="font-bold text-[#00e5a0]">{profile?.energyUsage || 0}/{(profile?.energyUsage || 0) + 50} kWh</span>
                               </div>
                               <div className="w-full bg-[#1e2440] rounded-full h-1.5 overflow-hidden">
-                                <div 
-                                  className="bg-[#00e5a0] h-1.5 rounded-full shadow-[0_0_10px_rgba(0,229,160,0.8)]" 
+                                <div
+                                  className="bg-[#00e5a0] h-1.5 rounded-full shadow-[0_0_10px_rgba(0,229,160,0.8)]"
                                   style={{ width: `${Math.min(((profile?.energyUsage || 0) / ((profile?.energyUsage || 0) + 50)) * 100, 100)}%` }}
                                 ></div>
                               </div>
                             </div>
-                            
+
                             <div>
                               <div className="flex justify-between text-[10px] font-mono uppercase tracking-wider mb-1">
                                 <span className="text-[#8892b0]">Production Goal</span>
                                 <span className="font-bold text-[#ffd166]">{profile?.hasSolarPanels ? "45/60 kWh" : "0/0 kWh"}</span>
                               </div>
                               <div className="w-full bg-[#1e2440] rounded-full h-1.5 overflow-hidden">
-                                <div 
-                                  className="bg-[#ffd166] h-1.5 rounded-full shadow-[0_0_10px_rgba(255,209,102,0.8)]" 
+                                <div
+                                  className="bg-[#ffd166] h-1.5 rounded-full shadow-[0_0_10px_rgba(255,209,102,0.8)]"
                                   style={{ width: profile?.hasSolarPanels ? "75%" : "0%" }}
                                 ></div>
                               </div>
                             </div>
-                            
+
                             <div>
                               <div className="flex justify-between text-[10px] font-mono uppercase tracking-wider mb-1">
                                 <span className="text-[#8892b0]">Carbon Reduction</span>
                                 <span className="font-bold text-[#a78bfa]">{profile?.hasSolarPanels ? "28/40 kg" : "0/0 kg"}</span>
                               </div>
                               <div className="w-full bg-[#1e2440] rounded-full h-1.5 overflow-hidden">
-                                <div 
-                                  className="bg-[#a78bfa] h-1.5 rounded-full shadow-[0_0_10px_rgba(167,139,250,0.8)]" 
+                                <div
+                                  className="bg-[#a78bfa] h-1.5 rounded-full shadow-[0_0_10px_rgba(167,139,250,0.8)]"
                                   style={{ width: profile?.hasSolarPanels ? "70%" : "0%" }}
                                 ></div>
                               </div>
@@ -934,7 +873,7 @@ const Profile = () => {
                       </section>
                     </motion.div>
                   )}
-                  
+
                   {activeTab === "analytics" && (
                     <motion.div
                       key="analytics"
@@ -949,10 +888,10 @@ const Profile = () => {
                           <BarChart3 className="mr-3 h-5 w-5 text-[#00e5a0]" />
                           Trading Analytics
                         </h2>
-                        
+
                         {/* Summary Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <motion.div 
+                          <motion.div
                             whileHover={{ scale: 1.02 }}
                             className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm hover:border-[#00e5a0]/50 transition-colors"
                           >
@@ -969,8 +908,8 @@ const Profile = () => {
                               </div>
                             </div>
                           </motion.div>
-                          
-                          <motion.div 
+
+                          <motion.div
                             whileHover={{ scale: 1.02 }}
                             className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm hover:border-[#4d9fff]/50 transition-colors"
                           >
@@ -987,8 +926,8 @@ const Profile = () => {
                               </div>
                             </div>
                           </motion.div>
-                          
-                          <motion.div 
+
+                          <motion.div
                             whileHover={{ scale: 1.02 }}
                             className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm hover:border-[#a78bfa]/50 transition-colors"
                           >
@@ -996,7 +935,7 @@ const Profile = () => {
                               <div>
                                 <p className="text-[#8892b0] font-mono text-[10px] uppercase tracking-wider font-bold">Trade Ratio</p>
                                 <p className="text-3xl font-bold mt-1 font-['Syne'] text-[#a78bfa]">
-                                  {userStats.kwhBought > 0 
+                                  {userStats.kwhBought > 0
                                     ? (parseFloat(userStats.kwhSold) / parseFloat(userStats.kwhBought)).toFixed(2)
                                     : '0.00'}
                                 </p>
@@ -1008,7 +947,7 @@ const Profile = () => {
                             </div>
                           </motion.div>
                         </div>
-                        
+
                         {/* Monthly Trading Chart */}
                         <div className="bg-[#0c0f1a] p-6 rounded-xl border border-[#1e2440] shadow-sm">
                           <h3 className="text-sm font-bold text-[#e8eaf6] mb-4 uppercase tracking-wider">Monthly Trading Volume</h3>
@@ -1018,8 +957,8 @@ const Profile = () => {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e2440" vertical={false} />
                                 <XAxis dataKey="month" tick={{ fill: '#8892b0', fontSize: 12, fontFamily: 'monospace' }} axisLine={{ stroke: '#1e2440' }} tickLine={false} />
                                 <YAxis tick={{ fill: '#8892b0', fontSize: 12, fontFamily: 'monospace' }} axisLine={{ stroke: '#1e2440' }} tickLine={false} />
-                                <Tooltip 
-                                  contentStyle={{ backgroundColor: '#111525', borderColor: '#1e2440', color: '#e8eaf6', fontFamily: 'monospace' }} 
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: '#111525', borderColor: '#1e2440', color: '#e8eaf6', fontFamily: 'monospace' }}
                                   itemStyle={{ color: '#00e5a0' }}
                                 />
                                 <Legend wrapperStyle={{ fontFamily: 'monospace', fontSize: '12px', color: '#8892b0' }} />
@@ -1033,11 +972,11 @@ const Profile = () => {
                             </div>
                           )}
                         </div>
-                        
+
                         {/* Two Column Layout */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                           {/* Trade Type Distribution */}
-                          <div className="bg-[#0c0f1a] p-6 rounded-xl border border-[#1e2440] shadow-sm">
+                          <div className="bg-[#0c0f1a] p-6 rounded-xl border border-[#1e2440] shadow-sm min-w-0 overflow-hidden">
                             <h3 className="text-sm font-bold text-[#e8eaf6] mb-4 uppercase tracking-wider">Trade Distribution</h3>
                             {tradeAnalytics.tradeTypeDistribution.some(t => t.value > 0) ? (
                               <ResponsiveContainer width="100%" height={200}>
@@ -1059,7 +998,7 @@ const Profile = () => {
                                       <Cell key={`cell-${index}`} fill={entry.name === 'Buy' ? '#4d9fff' : '#00e5a0'} />
                                     ))}
                                   </Pie>
-                                  <Tooltip 
+                                  <Tooltip
                                     contentStyle={{ backgroundColor: '#111525', borderColor: '#1e2440', color: '#e8eaf6', fontFamily: 'monospace' }}
                                   />
                                   <Legend wrapperStyle={{ fontFamily: 'monospace', fontSize: '12px', color: '#8892b0' }} />
@@ -1071,9 +1010,9 @@ const Profile = () => {
                               </div>
                             )}
                           </div>
-                          
+
                           {/* Price History */}
-                          <div className="bg-[#0c0f1a] p-6 rounded-xl border border-[#1e2440] shadow-sm">
+                          <div className="bg-[#0c0f1a] p-6 rounded-xl border border-[#1e2440] shadow-sm min-w-0 overflow-hidden">
                             <h3 className="text-sm font-bold text-[#e8eaf6] mb-4 uppercase tracking-wider">Recent Trade Prices</h3>
                             {tradeAnalytics.priceHistory.length > 0 ? (
                               <ResponsiveContainer width="100%" height={200}>
@@ -1081,13 +1020,13 @@ const Profile = () => {
                                   <CartesianGrid strokeDasharray="3 3" stroke="#1e2440" vertical={false} />
                                   <XAxis dataKey="date" tick={{ fill: '#8892b0', fontSize: 10, fontFamily: 'monospace' }} axisLine={{ stroke: '#1e2440' }} tickLine={false} />
                                   <YAxis tick={{ fill: '#8892b0', fontSize: 12, fontFamily: 'monospace' }} axisLine={{ stroke: '#1e2440' }} tickLine={false} />
-                                  <Tooltip 
+                                  <Tooltip
                                     contentStyle={{ backgroundColor: '#111525', borderColor: '#1e2440', color: '#e8eaf6', fontFamily: 'monospace' }}
                                   />
-                                  <Line 
-                                    type="monotone" 
-                                    dataKey="price" 
-                                    stroke="#a78bfa" 
+                                  <Line
+                                    type="monotone"
+                                    dataKey="price"
+                                    stroke="#a78bfa"
                                     strokeWidth={2}
                                     dot={{ fill: "#a78bfa", strokeWidth: 0, r: 4 }}
                                     activeDot={{ r: 6, fill: "#e8eaf6" }}
@@ -1104,6 +1043,95 @@ const Profile = () => {
                       </section>
                     </motion.div>
                   )}
+
+                  {activeTab === "settings" && (
+                    <motion.div
+                      key="settings"
+                      variants={tabVariants}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      {/* App Settings Section */}
+                      <section className="space-y-6">
+                        <h2 className="text-sm font-bold text-[#e8eaf6] mb-6 flex items-center uppercase tracking-wider">
+                          <Settings className="mr-3 h-5 w-5 text-[#00e5a0]" />
+                          Application Settings
+                        </h2>
+
+                        <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm">
+                          <h3 className="text-[#8892b0] font-mono text-xs uppercase tracking-wider font-bold mb-4 flex items-center">
+                            <Zap className="h-4 w-4 mr-2 text-[#00e5a0]" />
+                            Energy Forecast Preferences
+                          </h3>
+                          <p className="text-[#8892b0] text-sm mb-6 font-mono">
+                            Configure your default parameters for the Energy Forecast engine to receive personalized AI predictions upon login.
+                          </p>
+
+                          <div className="space-y-5">
+                            <div>
+                              <label htmlFor="forecastEngine" className="block text-[#e8eaf6] font-medium font-['Syne'] mb-2">
+                                Default Forecasting Engine
+                              </label>
+                              <select
+                                id="forecastEngine"
+                                name="forecastEngine"
+                                value={formData.forecastEngine}
+                                onChange={handleChange}
+                                className="w-full p-3 border border-[#1e2440] rounded-lg focus:ring-2 focus:ring-[#00e5a0] focus:border-transparent focus:outline-none transition-all bg-[#0c0f1a] text-[#e8eaf6] shadow-inner font-mono text-sm"
+                              >
+                                <option value="grid">Grid Analytics Engine (Zone LSTM)</option>
+                                <option value="city">City Climate Engine (Weather LSTM)</option>
+                                <option value="xgb">Historical Analytics Engine (XGBoost)</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label htmlFor="forecastZone" className="block text-[#e8eaf6] font-medium font-['Syne'] mb-2">
+                                Preferred Predictive Zone
+                              </label>
+                              <select
+                                id="forecastZone"
+                                name="forecastZone"
+                                value={formData.forecastZone}
+                                onChange={handleChange}
+                                className="w-full p-3 border border-[#1e2440] rounded-lg focus:ring-2 focus:ring-[#00e5a0] focus:border-transparent focus:outline-none transition-all bg-[#0c0f1a] text-[#e8eaf6] shadow-inner font-mono text-sm"
+                              >
+                                <option value="Northern">Northern Zone</option>
+                                <option value="Southern">Southern Zone</option>
+                                <option value="Eastern">Eastern Zone</option>
+                                <option value="Western">Western Zone</option>
+                                <option value="Central">Central Zone</option>
+                              </select>
+                            </div>
+
+                            <div className="pt-4">
+                              <motion.button
+                                type="button"
+                                onClick={handleSubmit}
+                                className="px-6 py-3 bg-[#00e5a0]/10 border border-[#00e5a0]/50 text-[#00e5a0] rounded-lg flex items-center justify-center font-mono text-[10px] font-bold uppercase tracking-wider shadow-sm hover:bg-[#00e5a0]/20 transition-colors"
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                disabled={loading}
+                              >
+                                {loading ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Saving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="mr-2 h-4 w-4" />
+                                    Save Preferences
+                                  </>
+                                )}
+                              </motion.button>
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+                    </motion.div>
+                  )}
                 </AnimatePresence>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
@@ -1111,7 +1139,7 @@ const Profile = () => {
                     <Edit className="mr-3 h-5 w-5 text-[#00e5a0]" />
                     Edit Profile
                   </h2>
-                  
+
                   <div className="space-y-5">
                     <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm">
                       <label htmlFor="email" className="block text-[#8892b0] font-mono text-[10px] uppercase tracking-wider font-bold mb-2 flex items-center">
@@ -1128,7 +1156,7 @@ const Profile = () => {
                         placeholder="Enter your email"
                       />
                     </div>
-                    
+
                     <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm">
                       <label htmlFor="userType" className="block text-[#8892b0] font-mono text-[10px] uppercase tracking-wider font-bold mb-2 flex items-center">
                         <UserCheck className="h-4 w-4 mr-2" />
@@ -1146,7 +1174,7 @@ const Profile = () => {
                         <option value="utility">Utility</option>
                       </select>
                     </div>
-                    
+
                     <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm">
                       <label htmlFor="location" className="block text-[#8892b0] font-mono text-[10px] uppercase tracking-wider font-bold mb-2 flex items-center">
                         <MapPin className="h-4 w-4 mr-2" />
@@ -1162,7 +1190,7 @@ const Profile = () => {
                         placeholder="Enter your location"
                       />
                     </div>
-                    
+
                     <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm">
                       <label htmlFor="energyUsage" className="block text-[#8892b0] font-mono text-[10px] uppercase tracking-wider font-bold mb-2 flex items-center">
                         <Zap className="h-4 w-4 mr-2" />
@@ -1179,7 +1207,7 @@ const Profile = () => {
                         min="0"
                       />
                     </div>
-                    
+
                     <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm">
                       <div className="flex items-center">
                         <input
@@ -1196,7 +1224,7 @@ const Profile = () => {
                         </label>
                       </div>
                     </div>
-                    
+
                     {/* Wallet Address (read-only in edit form) */}
                     {walletAddress && (
                       <div className="bg-[#111525] p-6 rounded-xl border border-[#1e2440] shadow-sm">
@@ -1219,7 +1247,7 @@ const Profile = () => {
                       </div>
                     )}
                   </div>
-                  
+
                   <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-4 mt-8 pt-4 border-t border-[#1e2440]">
                     <motion.button
                       type="button"
@@ -1230,7 +1258,7 @@ const Profile = () => {
                     >
                       Cancel
                     </motion.button>
-                    
+
                     <motion.button
                       type="submit"
                       className="px-6 py-3 bg-[#00e5a0]/10 border border-[#00e5a0]/50 text-[#00e5a0] rounded-lg flex items-center justify-center font-mono text-[10px] font-bold uppercase tracking-wider shadow-sm hover:bg-[#00e5a0]/20 transition-colors"

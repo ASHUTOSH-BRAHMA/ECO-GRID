@@ -1,489 +1,475 @@
 "use client"
 
 import { useState, useEffect, useContext } from "react"
-import { motion } from "framer-motion"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, PieChart, Pie, Cell } from "recharts"
+import { motion, AnimatePresence } from "framer-motion"
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell, PieChart, Pie } from "recharts"
 import {
-  Building2Icon,
-  ZapIcon,
-  UsersIcon,
-  TrendingUpIcon,
-  BarChart3Icon,
-  ActivityIcon,
-  AlertTriangleIcon,
-  CheckCircleIcon,
-  MapPinIcon,
-  ArrowRightIcon,
-  DollarSignIcon,
-  GaugeIcon,
+  Building2Icon, ZapIcon, UsersIcon, TrendingUpIcon, BarChart3Icon, ActivityIcon,
+  AlertTriangleIcon, CheckCircleIcon, ArrowRightIcon, DollarSignIcon, GaugeIcon,
+  WifiIcon, ShieldCheckIcon, ListIcon, RefreshCwIcon,
 } from "lucide-react"
 import NavBar from "./NavBar"
 import { AuthContext } from "../Context/AuthContext"
 import useSocket from "../hooks/useSocket"
-import { handlesuccess, handleerror } from "../../utils"
 import { apiUrl } from "../config"
+
+const C = {
+  bg: "#060810", bg2: "#0c0f1a", bg3: "#111525",
+  border: "#1e2440", border2: "#2a3155",
+  text: "#e8eaf6", text2: "#8892b0", text3: "#4a5568",
+  green: "#00e5a0", red: "#ff4d6d", yellow: "#ffd166",
+  blue: "#4d9fff", purple: "#a78bfa",
+}
+
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
+  @keyframes pulse2{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+  *{box-sizing:border-box}
+  ::-webkit-scrollbar{width:3px}
+  ::-webkit-scrollbar-thumb{background:#2a3155;border-radius:2px}
+`
+
+const Card = ({ title, badge, children, style = {}, accent = C.border }) => (
+  <div style={{ background: C.bg3, border: `1px solid ${accent}`, borderRadius: 8, padding: 14, ...style }}>
+    {(title || badge) && (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, paddingBottom: 8, borderBottom: `1px solid ${C.border}` }}>
+        <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 11, fontWeight: 700, color: C.text2, letterSpacing: "1.5px", textTransform: "uppercase" }}>{title}</span>
+        {badge}
+      </div>
+    )}
+    {children}
+  </div>
+)
+
+const Badge = ({ children, color = C.green, bg = "rgba(0,229,160,.12)" }) => (
+  <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, letterSpacing: ".5px", textTransform: "uppercase", background: bg, color, border: `1px solid ${color}40` }}>{children}</span>
+)
+
+const KpiTile = ({ label, value, icon, color = C.green, sub }) => (
+  <motion.div whileHover={{ y: -2 }}
+    style={{ background: C.bg2, border: `1px solid ${color}30`, borderRadius: 6, padding: "12px 14px", position: "relative", overflow: "hidden" }}>
+    <div style={{ position: "absolute", right: -6, top: -6, opacity: .07, fontSize: 48 }}>{icon}</div>
+    <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>{label}</p>
+    <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color, lineHeight: 1 }}>{value}</p>
+    {sub && <p style={{ fontSize: 9, color: C.text3, marginTop: 4 }}>{sub}</p>}
+  </motion.div>
+)
+
+// Grid Health Score (0–100) derived from stability + device status + load trend
+const calcHealthScore = (siteSummary, socketConnected) => {
+  if (!siteSummary) return 0
+  const stability = (siteSummary.totals?.stability_score || 0) * 40
+  const device = socketConnected ? 30 : 0
+  const trend = siteSummary.current?.load_trend === "stable" ? 20 : siteSummary.current?.load_trend === "falling" ? 15 : 8
+  const alert = siteSummary.alertState === "normal" ? 10 : siteSummary.alertState === "elevated_load" ? 5 : 0
+  return Math.min(100, Math.round(stability + device + trend + alert))
+}
+
+const healthColor = score => score >= 75 ? C.green : score >= 45 ? C.yellow : C.red
 
 const UtilityDashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [gridData, setGridData] = useState([])
+  const [gridHistory, setGridHistory] = useState([])
   const { user } = useContext(AuthContext)
   const { isConnected: socketConnected, energyData: liveEnergyData, subscribeToEnergyData } = useSocket()
 
-  // Utility-specific data states
-  const [gridStats, setGridStats] = useState({ 
-    totalProducers: '--', 
-    totalConsumers: '--', 
-    gridLoad: '--', 
-    revenue: '--' 
-  })
-  const [alerts, setAlerts] = useState([])
-  const [energyMix, setEnergyMix] = useState([
-    { name: 'Solar', value: 35, color: '#fbbf24' },
-    { name: 'Wind', value: 25, color: '#3b82f6' },
-    { name: 'Hydro', value: 20, color: '#06b6d4' },
-    { name: 'Grid', value: 20, color: '#6b7280' },
-  ])
-  const [transactions, setTransactions] = useState([])
   const [siteSummary, setSiteSummary] = useState(null)
+  const [allTransactions, setAllTransactions] = useState([])
+  const [allListings, setAllListings] = useState([])
+  const [userStats, setUserStats] = useState([]) // per-user aggregate
+  const [alerts, setAlerts] = useState([])
+  const [energyMix, setEnergyMix] = useState([])
+  const [forecast, setForecast] = useState([])
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastRefresh, setLastRefresh] = useState(null)
 
-  // Fetch utility data
+  const healthScore = calcHealthScore(siteSummary, socketConnected)
+
+  const fetchAll = async (showSpinner = false) => {
+    if (showSpinner) setRefreshing(true)
+    const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+    const h = { Authorization: `Bearer ${token}` }
+
+    // Site summary — grid-level aggregates
+    try {
+      const r = await fetch(apiUrl("/dashboard/site-summary"), { headers: h })
+      if (r.ok) {
+        const d = await r.json()
+        if (d.success) {
+          setSiteSummary(d)
+          setAlerts(d.alerts || [])
+          setEnergyMix(d.energyMix || [])
+        }
+      }
+    } catch {}
+
+    // All transactions (no auth required)
+    try {
+      const r = await fetch(apiUrl("/dashboard/transactions"))
+      if (r.ok) {
+        const d = await r.json()
+        setAllTransactions(Array.isArray(d) ? d : [])
+      }
+    } catch {}
+
+    // All listings — gives us per-producer data
+    try {
+      const r = await fetch(apiUrl("/listings"))
+      if (r.ok) {
+        const d = await r.json()
+        if (d.success && d.listings) {
+          setAllListings(d.listings)
+          // Build per-user stats from listings
+          const byUser = {}
+          d.listings.forEach(l => {
+            const uid = l.producer?._id || l.producer || "unknown"
+            const name = l.producer?.name || `User-${String(uid).slice(-4)}`
+            const utype = l.producer?.userType || "prosumer"
+            if (!byUser[uid]) byUser[uid] = { uid, name, userType: utype, listings: 0, totalKwh: 0, active: 0 }
+            byUser[uid].listings++
+            byUser[uid].totalKwh += Number(l.energyAmount || 0)
+            if (l.status === "active") byUser[uid].active++
+          })
+          setUserStats(Object.values(byUser).sort((a, b) => b.totalKwh - a.totalKwh))
+        }
+      }
+    } catch {}
+
+    // Forecast
+    try {
+      const r = await fetch(apiUrl("/dashboard/site-forecast?hours=24"), { headers: h })
+      if (r.ok) { const d = await r.json(); if (d.success) setForecast(d.forecast) }
+    } catch {}
+
+    setLastRefresh(new Date())
+    if (showSpinner) setTimeout(() => setRefreshing(false), 600)
+  }
+
   useEffect(() => {
-    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken')
-    if (!token) return
-    const headers = { Authorization: `Bearer ${token}` }
-
-    const fetchUtilityData = async () => {
-      try {
-        // Fetch all transactions for grid overview
-        const txRes = await fetch(apiUrl('/dashboard/transactions'))
-        if (txRes.ok) {
-          const txData = await txRes.json()
-          const totalVolume = txData.reduce((sum, t) => sum + (Number(t.energyKwh) || 0), 0)
-          const totalRevenue = txData.reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
-          
-          setGridStats(prev => ({ 
-            ...prev, 
-            revenue: `$${totalRevenue.toFixed(2)}`,
-            gridLoad: `${totalVolume.toFixed(1)} kWh`
-          }))
-          setTransactions(txData.slice(0, 5))
-        }
-      } catch (err) { console.error('Error fetching transactions:', err) }
-
-      try {
-        // Fetch listings to count producers
-        const listingsRes = await fetch(apiUrl('/listings'))
-        if (listingsRes.ok) {
-          const listingsData = await listingsRes.json()
-          if (listingsData.success) {
-            const uniqueProducers = new Set(listingsData.listings.map(l => l.producer?._id || l.producer)).size
-            setGridStats(prev => ({ ...prev, totalProducers: uniqueProducers }))
-          }
-        }
-      } catch (err) { console.error('Error fetching listings:', err) }
-
-      try {
-        const summaryRes = await fetch(apiUrl('/dashboard/site-summary'), { headers })
-        if (summaryRes.ok) {
-          const summaryData = await summaryRes.json()
-          if (summaryData.success) {
-            setSiteSummary(summaryData)
-            setGridStats(prev => ({
-              ...prev,
-              totalConsumers: summaryData.market?.totalConsumers ?? prev.totalConsumers,
-              totalProducers: summaryData.market?.totalProducers ?? prev.totalProducers,
-              gridLoad: `${(summaryData.totals?.total_energy_today_kwh || 0).toFixed(3)} kWh`
-            }))
-            setAlerts(summaryData.alerts || [])
-            setEnergyMix(summaryData.energyMix || [])
-          }
-        }
-      } catch (err) { console.error('Error fetching site summary:', err) }
-    }
-
-    fetchUtilityData()
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchUtilityData, 30000)
-    return () => clearInterval(interval)
+    fetchAll()
+    const iv = setInterval(() => fetchAll(), 30000)
+    return () => clearInterval(iv)
   }, [user])
 
-  // Subscribe to grid updates
-  useEffect(() => {
-    subscribeToEnergyData()
-  }, [subscribeToEnergyData])
+  useEffect(() => { subscribeToEnergyData() }, [subscribeToEnergyData])
 
-  // Update grid chart when we receive real-time updates
   useEffect(() => {
-    if (liveEnergyData) {
-      const newTimestamp = new Date().toLocaleTimeString('en-US', { hour12: false })
-      setGridData((prev) => {
-        const newData = [
-          ...prev,
-          {
-            timestamp: newTimestamp,
-            "Production": liveEnergyData.produced || 0,
-            "Consumption": liveEnergyData.consumed || 0,
-            "Grid Balance": (liveEnergyData.produced || 0) - (liveEnergyData.consumed || 0),
-          },
-        ]
-        if (newData.length > 10) {
-          return newData.slice(newData.length - 10)
-        }
-        return newData
+    if (!liveEnergyData) return
+    const ts = new Date().toLocaleTimeString("en-US", { hour12: false })
+    setGridHistory(prev => {
+      const next = [...prev, {
+        timestamp: ts,
+        Production: Number(liveEnergyData.site_supply_kwh || liveEnergyData.produced || 0),
+        Consumption: Number(liveEnergyData.site_demand_kwh || liveEnergyData.consumed || 0),
+        Balance: Number(liveEnergyData.grid_balance_kwh || 0),
+        Power: Number(liveEnergyData.power_w || 0),
+      }]
+      return next.length > 20 ? next.slice(next.length - 20) : next
+    })
+
+    // Imbalance alert: if consumption > production for last reading
+    if (liveEnergyData.site_demand_kwh > liveEnergyData.site_supply_kwh * 1.2) {
+      const imbalAlert = { id: "live-imbalance", type: "warning", message: "Grid imbalance: demand exceeds supply by >20%", time: ts }
+      setAlerts(prev => {
+        if (prev.find(a => a.id === "live-imbalance")) return prev
+        return [imbalAlert, ...prev]
       })
+    } else {
+      setAlerts(prev => prev.filter(a => a.id !== "live-imbalance"))
     }
   }, [liveEnergyData])
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
+  useEffect(() => { const t = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(t) }, [])
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        delayChildren: 0.3,
-        staggerChildren: 0.2,
-      },
-    },
-  }
+  // Computed grid metrics
+  const totalKwhTraded = allTransactions.reduce((s, t) => s + (Number(t.energyKwh) || 0), 0)
+  const totalRevenue = allTransactions.reduce((s, t) => s + (Number(t.amount) || 0), 0)
+  const totalProducers = siteSummary?.market?.totalProducers || userStats.length
+  const totalConsumers = siteSummary?.market?.totalConsumers || 0
+  const activeListings = allListings.filter(l => l.status === "active").length
 
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: {
-      y: 0,
-      opacity: 1,
-      transition: {
-        type: "spring",
-        stiffness: 100,
-      },
-    },
-  }
+  // Peak demand hours from forecast
+  const peakHour = forecast.length > 0 ? forecast.reduce((mx, x) => x.demand_kwh > mx.demand_kwh ? x : mx, forecast[0]) : null
 
   return (
     <>
+      <style>{css}</style>
       <NavBar />
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5 }}
-        className="bg-[#060810] text-[#e8eaf6] min-h-screen p-4 md:p-6 font-sans pt-28 mt-0"
-      >
-        {/* Header */}
-        <motion.div
-          initial={{ y: -50, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.6 }}
-          className="flex justify-between items-center mb-8 bg-[#0c0f1a] border border-[#1e2440] rounded-xl p-5 shadow-[0_0_15px_rgba(0,0,0,0.5)]"
-        >
-          <div className="flex items-center">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 8, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-              className="bg-[#111525] border border-[#a78bfa]/30 p-2 rounded-lg mr-3 shadow-[0_0_10px_rgba(167,139,250,0.2)]"
-            >
-              <Building2Icon className="w-10 h-10 text-[#a78bfa]" />
-            </motion.div>
-            <div>
-              <span className="text-2xl font-bold font-['Syne'] text-[#e8eaf6] tracking-wide">
-                Utility Dashboard
-              </span>
-              <p className="text-xs text-[#8892b0] font-mono mt-1">Grid Management & Analytics</p>
+      <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, paddingTop: 52 }}>
+
+        {/* Top bar */}
+        <div style={{ background: "rgba(6,8,16,.97)", borderBottom: `1px solid ${C.border}`, padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 44, position: "sticky", top: 52, zIndex: 40 }}>
+          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: C.purple }}>
+            EcoGrid <span style={{ color: C.text2, fontWeight: 400 }}>/ Grid Operator</span>
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: socketConnected ? C.green : C.yellow, animation: "pulse2 2s infinite" }} />
+              <span style={{ fontSize: 10, color: socketConnected ? C.green : C.yellow }}>{socketConnected ? "GRID ONLINE" : "CONNECTING"}</span>
+            </div>
+            <motion.button whileHover={{ scale: 1.05 }} onClick={() => fetchAll(true)}
+              style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color: C.text2, fontSize: 10, cursor: "pointer", fontFamily: "'JetBrains Mono',monospace" }}>
+              <RefreshCwIcon size={10} style={{ animation: refreshing ? "spin 0.7s linear infinite" : "none" }} /> Refresh
+            </motion.button>
+            <span style={{ fontSize: 10, color: C.text3 }}>{user?.user?.name || user?.name || "Grid Operator"}</span>
+            <span style={{ fontSize: 10, color: C.text3 }}>{currentTime.toLocaleTimeString()}</span>
+          </div>
+        </div>
+
+        <div style={{ padding: 14 }}>
+
+          {/* ── KPI Row ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 10, marginBottom: 14 }}>
+            <KpiTile label="Producers" value={totalProducers} icon="⚡" color={C.yellow} />
+            <KpiTile label="Consumers" value={totalConsumers} icon="🏠" color={C.blue} />
+            <KpiTile label="Active Listings" value={activeListings} icon="📋" color={C.green} />
+            <KpiTile label="kWh Traded" value={totalKwhTraded.toFixed(2)} icon="🔋" color={C.purple} sub="all time" />
+            <KpiTile label="Revenue" value={`${totalRevenue.toFixed(0)} ETK`} icon="💰" color={C.green} sub="all time" />
+            <KpiTile label="Grid Health" value={`${healthScore}`}
+              icon={healthScore >= 75 ? "✅" : healthScore >= 45 ? "⚠️" : "🔴"}
+              color={healthColor(healthScore)}
+              sub={healthScore >= 75 ? "optimal" : healthScore >= 45 ? "elevated" : "critical"} />
+          </div>
+
+          {/* ── Main grid: Chart | Alerts | Mix ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 280px 200px", gap: 12, marginBottom: 12 }}>
+
+            {/* Live Grid Chart */}
+            <Card title="Live Grid Balance — Production vs Consumption" badge={
+              <Badge color={socketConnected ? C.green : C.yellow} bg={socketConnected ? "rgba(0,229,160,.1)" : "rgba(255,209,102,.1)"}>
+                {socketConnected ? "Live" : "Offline"}
+              </Badge>
+            }>
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={gridHistory} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gradProd" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={C.green} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={C.green} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gradCons" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={C.blue} stopOpacity={0.2} />
+                      <stop offset="95%" stopColor={C.blue} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+                  <XAxis dataKey="timestamp" tick={{ fill: C.text3, fontSize: 8 }} axisLine={{ stroke: C.border }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: C.text3, fontSize: 8 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: C.bg2, borderColor: C.border, borderRadius: 4, fontSize: 11 }} />
+                  <Area type="monotone" dataKey="Production" stroke={C.green} strokeWidth={2} fill="url(#gradProd)" dot={false} activeDot={{ r: 4 }} />
+                  <Area type="monotone" dataKey="Consumption" stroke={C.blue} strokeWidth={2} fill="url(#gradCons)" dot={false} activeDot={{ r: 4 }} />
+                  <Line type="monotone" dataKey="Balance" stroke={C.purple} strokeWidth={1.5} strokeDasharray="5 5" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginTop: 12 }}>
+                {[
+                  { label: "Avg Load 1m", value: `${((siteSummary?.totals?.average_load_1m_kw || 0) * 1000).toFixed(2)} W`, color: C.blue },
+                  { label: "Avg Load 15m", value: `${((siteSummary?.totals?.average_load_15m_kw || 0) * 1000).toFixed(2)} W`, color: C.purple },
+                  { label: "Peak Today", value: `${((siteSummary?.totals?.peak_power_today_kw || 0) * 1000).toFixed(2)} W`, color: C.red },
+                  { label: "Stability", value: `${((siteSummary?.totals?.stability_score || 0) * 100).toFixed(0)}%`, color: healthColor(healthScore) },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ background: C.bg2, borderRadius: 4, padding: "7px 8px", textAlign: "center" }}>
+                    <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", marginBottom: 4 }}>{label}</p>
+                    <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color }}>{value}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* Alerts */}
+            <Card title="Grid Alerts" accent={alerts.some(a => a.type === "warning") ? C.red + "80" : C.border}
+              badge={<span style={{ fontSize: 9, background: alerts.filter(a => a.type === "warning").length > 0 ? `${C.red}20` : `${C.green}15`, color: alerts.filter(a => a.type === "warning").length > 0 ? C.red : C.green, padding: "2px 7px", borderRadius: 3, border: `1px solid ${alerts.filter(a => a.type === "warning").length > 0 ? C.red : C.green}40` }}>
+                {alerts.filter(a => a.type === "warning").length} WARN
+              </span>}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 260, overflowY: "auto" }}>
+                {alerts.map((alert) => (
+                  <motion.div key={alert.id} layout
+                    style={{ padding: "9px 10px", borderRadius: 4, background: C.bg2, border: `1px solid ${alert.type === "warning" ? C.yellow + "40" : alert.type === "success" ? C.green + "40" : C.blue + "40"}`, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    {alert.type === "warning" ? <AlertTriangleIcon size={13} style={{ color: C.yellow, flexShrink: 0, marginTop: 1 }} /> :
+                      alert.type === "success" ? <CheckCircleIcon size={13} style={{ color: C.green, flexShrink: 0, marginTop: 1 }} /> :
+                        <ActivityIcon size={13} style={{ color: C.blue, flexShrink: 0, marginTop: 1 }} />}
+                    <div>
+                      <p style={{ fontSize: 10, color: C.text, lineHeight: 1.4, marginBottom: 2 }}>{alert.message}</p>
+                      <p style={{ fontSize: 9, color: C.text3 }}>{alert.time}</p>
+                    </div>
+                  </motion.div>
+                ))}
+                {peakHour && (
+                  <div style={{ padding: "9px 10px", borderRadius: 4, background: C.bg2, border: `1px solid ${C.purple}40`, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <TrendingUpIcon size={13} style={{ color: C.purple, flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <p style={{ fontSize: 10, color: C.text, lineHeight: 1.4, marginBottom: 2 }}>
+                        Peak demand forecast at <strong>{peakHour.hour}:00</strong> — {peakHour.demand_kwh.toFixed(4)} kWh
+                      </p>
+                      <p style={{ fontSize: 9, color: C.text3 }}>ML forecast</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Energy Mix Pie */}
+            <Card title="Energy Mix">
+              <ResponsiveContainer width="100%" height={140}>
+                <PieChart>
+                  <Pie data={energyMix} cx="50%" cy="50%" innerRadius={38} outerRadius={60} paddingAngle={4} dataKey="value" stroke="none">
+                    {energyMix.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: C.bg2, borderColor: C.border, borderRadius: 4, fontSize: 10 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px", justifyContent: "center", marginTop: 6 }}>
+                {energyMix.map(item => (
+                  <div key={item.name} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: C.text2 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: item.color }} />
+                    <span>{item.name} <span style={{ color: C.text, fontWeight: 600 }}>{item.value}%</span></span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+
+          {/* ── Multi-User Table + Forecast ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 12 }}>
+
+            {/* Per-User Producer Table */}
+            <Card title="All users — Energy Producers" badge={<Badge color={C.yellow} bg="rgba(255,209,102,.1)">{userStats.length} producers</Badge>}>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+                      {["#", "Name", "Type", "Listings", "Active", "Total kWh"].map(h => (
+                        <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userStats.length === 0 ? (
+                      <tr><td colSpan={6} style={{ padding: "20px", textAlign: "center", color: C.text3, fontSize: 11 }}>No producer data yet</td></tr>
+                    ) : userStats.map((u, i) => (
+                      <motion.tr key={u.uid} whileHover={{ backgroundColor: C.bg2 }}
+                        style={{ borderBottom: `1px solid ${C.border}`, transition: "background .15s" }}>
+                        <td style={{ padding: "8px 10px", color: C.text3 }}>{i + 1}</td>
+                        <td style={{ padding: "8px 10px", color: C.text, fontWeight: 600 }}>{u.name}</td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 3, background: u.userType === "prosumer" ? `${C.yellow}18` : `${C.blue}18`, color: u.userType === "prosumer" ? C.yellow : C.blue, border: `1px solid ${u.userType === "prosumer" ? C.yellow : C.blue}40` }}>
+                            {u.userType}
+                          </span>
+                        </td>
+                        <td style={{ padding: "8px 10px", color: C.text2, textAlign: "center" }}>{u.listings}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                          <span style={{ color: u.active > 0 ? C.green : C.text3, fontWeight: 600 }}>{u.active}</span>
+                        </td>
+                        <td style={{ padding: "8px 10px", color: C.green, fontFamily: "'Syne',sans-serif", fontWeight: 700 }}>{u.totalKwh.toFixed(3)} kWh</td>
+                      </motion.tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Recent transactions below table */}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                <p style={{ fontSize: 9, color: C.text2, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Recent Grid Transactions</p>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+                  <thead>
+                    <tr>
+                      {["Time", "Type", "Energy", "ETK"].map(h => (
+                        <th key={h} style={{ padding: "4px 8px", textAlign: "left", fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1 }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allTransactions.slice(0, 8).map((tx, i) => (
+                      <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}>
+                        <td style={{ padding: "6px 8px", color: C.text3 }}>{new Date(tx.timestamp).toLocaleTimeString()}</td>
+                        <td style={{ padding: "6px 8px" }}>
+                          <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: tx.type === "sold" ? `${C.green}18` : `${C.blue}18`, color: tx.type === "sold" ? C.green : C.blue }}>
+                            {tx.type === "sold" ? "SELL" : "BUY"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "6px 8px", color: C.text }}>{Number(tx.energyKwh || 0).toFixed(3)} kWh</td>
+                        <td style={{ padding: "6px 8px", color: C.purple, fontWeight: 600 }}>{Number(tx.amount || 0).toFixed(1)}</td>
+                      </tr>
+                    ))}
+                    {allTransactions.length === 0 && (
+                      <tr><td colSpan={4} style={{ padding: "12px", textAlign: "center", color: C.text3 }}>No transactions yet</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            {/* 24h Demand Forecast */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Card title="24h Demand Forecast" badge={<Badge color={C.purple} bg="rgba(167,139,250,.1)">ML</Badge>}>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={forecast} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradDemand" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={C.purple} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={C.purple} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+                    <XAxis dataKey="hour" tickFormatter={h => `${h}h`} tick={{ fill: C.text3, fontSize: 8 }} axisLine={{ stroke: C.border }} tickLine={false} interval={3} />
+                    <YAxis tick={{ fill: C.text3, fontSize: 8 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: C.bg2, borderColor: C.border, borderRadius: 4, fontSize: 11 }}
+                      formatter={(v, n) => [`${Number(v).toExponential(3)} kWh`, n]} />
+                    <Area type="monotone" dataKey="demand_kwh" name="Demand" stroke={C.purple} strokeWidth={2} fill="url(#gradDemand)" dot={false} />
+                    <Area type="monotone" dataKey="supply_kwh" name="Supply" stroke={C.green} strokeWidth={1.5} strokeDasharray="4 4" fill="none" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </Card>
+
+              {/* Grid Health Gauge */}
+              <Card title="Grid Health Score" accent={healthColor(healthScore) + "60"}>
+                <div style={{ textAlign: "center", padding: "8px 0 12px" }}>
+                  <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 48, color: healthColor(healthScore), lineHeight: 1 }}>{healthScore}</p>
+                  <p style={{ fontSize: 10, color: healthColor(healthScore), marginTop: 4, textTransform: "uppercase", letterSpacing: 2 }}>
+                    {healthScore >= 75 ? "Optimal" : healthScore >= 45 ? "Elevated" : "Critical"}
+                  </p>
+                </div>
+                <div style={{ height: 6, background: C.bg2, borderRadius: 4, overflow: "hidden", marginBottom: 12 }}>
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${healthScore}%` }} transition={{ duration: 1.2, ease: "easeOut" }}
+                    style={{ height: "100%", background: `linear-gradient(90deg, ${C.red}, ${C.yellow}, ${C.green})`, borderRadius: 4 }} />
+                </div>
+                {[
+                  { label: "Stability Score", value: `${((siteSummary?.totals?.stability_score || 0) * 100).toFixed(0)}%` },
+                  { label: "Device Status", value: socketConnected ? "Online" : "Offline", color: socketConnected ? C.green : C.red },
+                  { label: "Load Trend", value: siteSummary?.current?.load_trend || "--" },
+                  { label: "Alert State", value: siteSummary?.alertState || "--" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
+                    <span style={{ color: C.text3 }}>{label}</span>
+                    <span style={{ color: color || C.text, fontWeight: 600 }}>{value}</span>
+                  </div>
+                ))}
+              </Card>
+
+              {/* Quick actions */}
+              <Card title="Actions">
+                {[
+                  { label: "⚡ Manage Listings", color: C.yellow, route: "/marketplace" },
+                  { label: "📊 Energy Forecast", color: C.purple, route: "/forecast" },
+                  { label: "⚙ Settings", color: C.text2, route: "/profile" },
+                ].map(({ label, color, route }) => (
+                  <motion.button key={label} whileHover={{ x: 3 }} whileTap={{ scale: 0.97 }}
+                    onClick={() => window.location.href = route}
+                    style={{ width: "100%", padding: "8px 10px", marginBottom: 6, background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color, fontSize: 11, textAlign: "left", fontFamily: "'JetBrains Mono',monospace", cursor: "pointer" }}>
+                    {label}
+                  </motion.button>
+                ))}
+              </Card>
             </div>
           </div>
-          <motion.div
-            whileHover={{ scale: 1.05 }}
-            className="flex items-center bg-[#111525] border border-[#1e2440] px-4 py-2 rounded-lg shadow-sm"
-          >
-            <div className="mr-3 text-right">
-              <span className="text-[10px] text-[#8892b0] uppercase tracking-wider block font-bold">Grid Operator,</span>
-              <span className="font-semibold text-[#e8eaf6] font-mono text-sm">{user?.user?.name || 'Utility'}</span>
-            </div>
-            <div className="relative">
-              <div className="w-10 h-10 rounded-full border-2 border-[#1e2440] bg-[#0c0f1a] flex items-center justify-center">
-                <UsersIcon className="w-5 h-5 text-[#8892b0]" />
-              </div>
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#00e5a0] rounded-full border-2 border-[#111525]"></span>
-            </div>
-          </motion.div>
-        </motion.div>
-
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid grid-cols-1 md:grid-cols-4 gap-6"
-        >
-          {/* Grid Overview */}
-          <motion.div
-            variants={itemVariants}
-            className="bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440] hover:border-[#a78bfa]/50 transition-colors"
-          >
-            <div className="flex justify-between items-center mb-5 border-b border-[#1e2440] pb-3">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center uppercase tracking-wider">
-                <GaugeIcon className="mr-2 text-[#a78bfa]" size={18} />
-                Grid Overview
-              </h2>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                {
-                  icon: <ZapIcon className="text-[#ffd166]" size={18} />,
-                  value: gridStats.totalProducers,
-                  label: "Producers",
-                  bgColor: "bg-[#ffd166]/10 border border-[#ffd166]/30",
-                },
-                {
-                  icon: <UsersIcon className="text-[#4d9fff]" size={18} />,
-                  value: gridStats.totalConsumers,
-                  label: "Consumers",
-                  bgColor: "bg-[#4d9fff]/10 border border-[#4d9fff]/30",
-                },
-                {
-                  icon: <ActivityIcon className="text-[#00e5a0]" size={18} />,
-                  value: gridStats.gridLoad,
-                  label: "Grid Load",
-                  bgColor: "bg-[#00e5a0]/10 border border-[#00e5a0]/30",
-                },
-                {
-                  icon: <DollarSignIcon className="text-[#a78bfa]" size={18} />,
-                  value: gridStats.revenue,
-                  label: "Revenue",
-                  bgColor: "bg-[#a78bfa]/10 border border-[#a78bfa]/30",
-                },
-              ].map((item, index) => (
-                <motion.div
-                  key={index}
-                  className="flex flex-col items-start p-3 rounded-lg bg-[#111525] border border-[#1e2440] relative overflow-hidden"
-                  whileHover={{ scale: 1.02, backgroundColor: "#1e2440" }}
-                >
-                  <div className={`absolute -right-4 -top-4 opacity-10 p-4 rounded-full ${item.bgColor.split(' ')[0]}`}>
-                    {item.icon}
-                  </div>
-                  <div className={`mb-2 p-1.5 rounded bg-transparent ${item.bgColor}`}>
-                    {item.icon}
-                  </div>
-                  <div>
-                    <p className="font-mono font-bold text-[#e8eaf6] text-lg">{item.value}</p>
-                    <p className="text-[10px] text-[#8892b0] uppercase tracking-wider font-bold mt-1">{item.label}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Live Grid Status */}
-          <motion.div
-            variants={itemVariants}
-            className="col-span-1 md:col-span-3 bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440]"
-          >
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 border-b border-[#1e2440] pb-3">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center mb-2 sm:mb-0 uppercase tracking-wider">
-                <BarChart3Icon className="mr-2 text-[#a78bfa]" size={18} />
-                Live Grid Status
-              </h2>
-              <div className="flex items-center">
-                <motion.div
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
-                  className={`w-2 h-2 rounded-full ${socketConnected ? 'bg-[#00e5a0]' : 'bg-[#ffd166]'} mr-2`}
-                ></motion.div>
-                <span className={`text-[10px] uppercase font-bold tracking-wider ${socketConnected ? 'text-[#00e5a0]' : 'text-[#ffd166]'}`}>
-                  {socketConnected ? 'Grid Online' : 'Connecting...'}
-                </span>
-              </div>
-            </div>
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={gridData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e2440" vertical={false} />
-                <XAxis dataKey="timestamp" tick={{ fill: "#8892b0", fontSize: 10, fontFamily: "monospace" }} axisLine={{ stroke: "#1e2440" }} tickLine={{ stroke: "#1e2440" }} />
-                <YAxis tick={{ fill: "#8892b0", fontSize: 10, fontFamily: "monospace" }} axisLine={{ stroke: "#1e2440" }} tickLine={{ stroke: "#1e2440" }} unit=" kWh" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#111525",
-                    borderColor: "#1e2440",
-                    borderRadius: "4px",
-                    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.5)",
-                    fontFamily: "monospace",
-                    fontSize: "12px"
-                  }}
-                  itemStyle={{ color: "#e8eaf6" }}
-                  labelStyle={{ fontWeight: "bold", color: "#8892b0", marginBottom: "4px" }}
-                  formatter={(value) => `${value} kWh`}
-                />
-                <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingTop: "10px", fontSize: "12px", color: "#8892b0" }} />
-                <Line type="monotone" dataKey="Production" stroke="#00e5a0" strokeWidth={2} dot={{ fill: "#0c0f1a", stroke: "#00e5a0", strokeWidth: 2, r: 4 }} activeDot={{ r: 6, fill: '#00e5a0', stroke: '#060810' }} />
-                <Line type="monotone" dataKey="Consumption" stroke="#4d9fff" strokeWidth={2} dot={{ fill: "#0c0f1a", stroke: "#4d9fff", strokeWidth: 2, r: 4 }} activeDot={{ r: 6, fill: '#4d9fff', stroke: '#060810' }} />
-                <Line type="monotone" dataKey="Grid Balance" stroke="#a78bfa" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </motion.div>
-
-          {/* Alerts & Notifications */}
-          <motion.div
-            variants={itemVariants}
-            className="bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440] hover:border-[#1e2440] transition-colors"
-          >
-            <div className="border-b border-[#1e2440] pb-3 mb-5">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center uppercase tracking-wider">
-                <AlertTriangleIcon className="mr-2 text-[#ff4d6d]" size={18} />
-                Grid Alerts
-              </h2>
-            </div>
-            <div className="space-y-3">
-              {alerts.map((alert) => (
-                <motion.div
-                  key={alert.id}
-                  whileHover={{ x: 5 }}
-                  className={`flex items-start p-3 rounded bg-[#111525] border ${
-                    alert.type === 'warning' ? 'border-[#ffd166]/30' :
-                    alert.type === 'success' ? 'border-[#00e5a0]/30' :
-                    'border-[#4d9fff]/30'
-                  }`}
-                >
-                  {alert.type === 'warning' ? <AlertTriangleIcon className="w-4 h-4 text-[#ffd166] mr-2 mt-0.5 flex-shrink-0" /> :
-                   alert.type === 'success' ? <CheckCircleIcon className="w-4 h-4 text-[#00e5a0] mr-2 mt-0.5 flex-shrink-0" /> :
-                   <ActivityIcon className="w-4 h-4 text-[#4d9fff] mr-2 mt-0.5 flex-shrink-0" />}
-                  <div className="flex-1">
-                    <p className="font-bold text-[#e8eaf6] text-xs uppercase tracking-wide mb-1 leading-tight">{alert.message}</p>
-                    <p className="text-[10px] text-[#8892b0] font-mono">{alert.time}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Energy Mix */}
-          <motion.div
-            variants={itemVariants}
-            className="bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440] hover:border-[#1e2440] transition-colors"
-          >
-            <div className="border-b border-[#1e2440] pb-3 mb-5">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center uppercase tracking-wider">
-                <ZapIcon className="mr-2 text-[#ffd166]" size={18} />
-                Energy Mix
-              </h2>
-            </div>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={energyMix}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                  stroke="none"
-                >
-                  {energyMix.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#111525",
-                    borderColor: "#1e2440",
-                    borderRadius: "4px",
-                    fontFamily: "monospace",
-                    fontSize: "12px",
-                    color: "#e8eaf6"
-                  }}
-                  itemStyle={{ color: "#e8eaf6" }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex flex-wrap justify-center gap-2 mt-2 font-mono text-xs">
-              {energyMix.map((item) => (
-                <div key={item.name} className="flex items-center text-[#8892b0]">
-                  <div className="w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: item.color }}></div>
-                  <span>{item.name} <span className="text-[#e8eaf6]">{item.value}%</span></span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Recent Transactions */}
-          <motion.div
-            variants={itemVariants}
-            className="col-span-1 md:col-span-2 bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440] hover:border-[#1e2440] transition-colors"
-          >
-            <div className="border-b border-[#1e2440] pb-3 mb-5">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center uppercase tracking-wider">
-                <TrendingUpIcon className="mr-2 text-[#a78bfa]" size={18} />
-                Recent Grid Transactions
-              </h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-[10px] uppercase font-mono tracking-wider">
-                <thead className="bg-[#111525] border-b border-[#1e2440] text-[#8892b0]">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-bold">Time</th>
-                    <th className="px-4 py-3 text-left font-bold">Type</th>
-                    <th className="px-4 py-3 text-right font-bold">Energy</th>
-                    <th className="px-4 py-3 text-right font-bold">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-[#0c0f1a]">
-                  {transactions.length === 0 ? (
-                    <tr>
-                      <td colSpan="4" className="px-4 py-4 text-center text-[#8892b0]">No recent transactions</td>
-                    </tr>
-                  ) : transactions.map((tx, i) => (
-                    <tr key={i} className="border-b border-[#1e2440] hover:bg-[#111525] transition-colors text-[#e8eaf6]">
-                      <td className="px-4 py-3 text-[#8892b0]">
-                        {new Date(tx.timestamp).toLocaleTimeString()}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 flex w-max border rounded ${tx.type === 'sold' ? 'bg-[#00e5a0]/10 border-[#00e5a0]/30 text-[#00e5a0]' : 'bg-[#4d9fff]/10 border-[#4d9fff]/30 text-[#4d9fff]'}`}>
-                          {tx.type === 'sold' ? 'SALE' : 'PURCHASE'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold">{tx.energyKwh} kWh</td>
-                      <td className="px-4 py-3 text-right font-bold text-[#a78bfa]">{tx.amount} ETK</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </motion.div>
-        </motion.div>
+        </div>
 
         {/* Footer */}
-        <motion.footer
-          className="bg-[#0c0f1a] border border-[#1e2440] text-[#8892b0] py-6 mt-10 rounded-xl"
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          transition={{ duration: 1 }}
-        >
-          <div className="container mx-auto px-6">
-            <div className="flex flex-col md:flex-row justify-between items-center">
-              <div className="text-center md:text-left mb-4 md:mb-0">
-                <h3 className="text-sm font-bold text-[#e8eaf6] uppercase tracking-wider font-['Syne'] flex items-center"><span className="text-[#00e5a0]">Eco</span>Grid Utility</h3>
-                <p className="text-[10px] text-[#8892b0] mt-1 font-mono uppercase tracking-widest max-w-md">
-                  Grid management & analytics.
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] text-[#8892b0] font-mono tracking-wider">&copy; {new Date().getFullYear()} EcoGrid. All Rights Reserved.</p>
-              </div>
-            </div>
-          </div>
-        </motion.footer>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-          className="text-[10px] uppercase tracking-wider text-[#8892b0] text-right mt-4 font-mono fixed bottom-4 right-4 bg-[#111525] border border-[#1e2440] px-3 py-1.5 rounded shadow-lg z-50"
-        >
-          SYS_TIME: {currentTime.toLocaleTimeString()}
-        </motion.div>
-      </motion.div>
+        <div style={{ borderTop: `1px solid ${C.border}`, margin: "0 14px", padding: "10px 0", display: "flex", justifyContent: "space-between", fontSize: 10, color: C.text3 }}>
+          <span style={{ color: C.text2 }}>EcoGrid · Utility Dashboard</span>
+          <span>Last system sync: {lastRefresh ? lastRefresh.toLocaleTimeString() : "—"}</span>
+        </div>
+      </div>
     </>
   )
 }

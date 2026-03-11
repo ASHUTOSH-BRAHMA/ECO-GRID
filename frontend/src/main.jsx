@@ -4,11 +4,14 @@ import './index.css'
 import App from './App.jsx'
 import 'react-toastify/ReactToastify.css';
 import { AuthProvider } from './Context/AuthContext.jsx'
+import { WalletProvider } from './Context/WalletContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <AuthProvider>
-    <App />
+      <WalletProvider>
+        <App />
+      </WalletProvider>
     </AuthProvider>
   </StrictMode>,
 )

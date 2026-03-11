@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <WebServer.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -12,9 +13,9 @@ const char* ssid = "ESP32_TEST";
 const char* password = "12345678";
 
 // --- API CONFIGURATION ---
-// Use your laptop's LAN IP here. The ESP32 must send data to the backend,
-// not to the Vite frontend. The frontend reads the live data from the backend.
-const char* serverPath = "http://10.248.103.223:8080/api/dashboard/energy-ingest";
+// Send telemetry to the deployed backend. The website reads live data from
+// this backend; the ESP32 should not post directly to the Vercel frontend.
+const char* serverPath = "https://ecogrid-backend.onrender.com/api/dashboard/energy-ingest";
 const char* deviceId = "esp32-site-001";
 const char* sourceType = "aggregate";
 const char* deviceApiKey = "";
@@ -134,11 +135,13 @@ void loop() {
       }
 
       HTTPClient http;
+      WiFiClientSecure client;
+      client.setInsecure();
       http.setConnectTimeout(3000); // 3 second timeout
       http.setTimeout(5000);
       
       Serial.println("Attempting to connect to: " + String(serverPath));
-      http.begin(serverPath);
+      http.begin(client, String(serverPath));
       http.addHeader("Content-Type", "application/json");
 
       String httpRequestData = "{\"deviceId\":\"" + String(deviceId) + "\",\"sourceType\":\"" + String(sourceType) + "\",\"apiKey\":\"" + String(deviceApiKey) + "\",\"voltage\":" + String(voltage, 2) + ",\"current\":" + String(current, 1) + ",\"power\":" + String(power, 1) + ",\"energy\":" + String(energy_mWh, 2) + "}";
@@ -155,7 +158,7 @@ void loop() {
       } else {
         Serial.print("Error Code: ");
         Serial.println(httpResponseCode);
-        Serial.println("Check: 1. Laptop IP, 2. Firewall, 3. Backend is running");
+        Serial.println("Check: 1. Backend URL, 2. WiFi access, 3. Render service is running");
       }
       
       http.end();

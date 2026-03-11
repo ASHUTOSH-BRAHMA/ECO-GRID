@@ -4,7 +4,6 @@ import { X, Bell, CheckCircle, AlertCircle, Info, Zap, ShoppingCart } from 'luci
 import useSocket from '../hooks/useSocket';
 import { ML_ECOGRID_API_URL } from '../config';
 
-// Consistent dark theme colors
 const C = {
   bg: "#060810", bg2: "#0c0f1a", bg3: "#111525",
   border: "#1e2440", border2: "#2a3155",
@@ -14,20 +13,13 @@ const C = {
 
 const NotificationIcon = ({ type }) => {
   switch (type) {
-    case 'trade':
-      return <ShoppingCart className="w-5 h-5 text-[#00e5a0]" />;
-    case 'listing':
-      return <Zap className="w-5 h-5 text-[#ffd166]" />;
-    case 'price':
-      return <Bell className="w-5 h-5 text-[#4d9fff]" />;
-    case 'success':
-      return <CheckCircle className="w-5 h-5 text-[#00e5a0]" />;
-    case 'error':
-      return <AlertCircle className="w-5 h-5 text-[#ff4d6d]" />;
-    case 'peak':
-      return <AlertCircle className="w-5 h-5 text-[#ffd166]" />;
-    default:
-      return <Info className="w-5 h-5 text-[#4d9fff]" />;
+    case 'trade':      return <ShoppingCart className="w-5 h-5" style={{ color: C.green }} />;
+    case 'listing':    return <Zap className="w-5 h-5" style={{ color: C.yellow }} />;
+    case 'price':      return <Bell className="w-5 h-5" style={{ color: C.blue }} />;
+    case 'success':    return <CheckCircle className="w-5 h-5" style={{ color: C.green }} />;
+    case 'error':      return <AlertCircle className="w-5 h-5" style={{ color: C.red }} />;
+    case 'peak':       return <AlertCircle className="w-5 h-5" style={{ color: C.yellow }} />;
+    default:           return <Info className="w-5 h-5" style={{ color: C.blue }} />;
   }
 };
 
@@ -43,40 +35,45 @@ const NotificationSystem = () => {
     } catch(e) {}
     return [];
   });
+
+  // Unread count derived from stored value, reset if no notifications
   const [unreadCount, setUnreadCount] = useState(() => {
-    return parseInt(localStorage.getItem('ecogrid_unread') || "0");
+    const stored = parseInt(localStorage.getItem('ecogrid_unread') || "0");
+    const hasStored = (() => {
+      try { return JSON.parse(localStorage.getItem('ecogrid_notifications') || '[]').length > 0; } catch { return false; }
+    })();
+    return hasStored ? stored : 0;
   });
+
   const [isOpen, setIsOpen] = useState(false);
   const { notifications: socketNotifications, clearNotification } = useSocket();
 
+  // Deduplicate socket notifications
   useEffect(() => {
     if (socketNotifications.length > 0) {
       const latest = socketNotifications[socketNotifications.length - 1];
-      if (!notifications.find(n => n.id === latest.id)) {
-        addNotification({
-          id: latest.id,
-          type: latest.type,
-          title: latest.message,
-          timestamp: latest.timestamp,
-        });
-      }
+      setNotifications(prev => {
+        if (prev.find(n => n.id === latest.id)) return prev;
+        return [{ id: latest.id, type: latest.type, title: latest.message, timestamp: latest.timestamp }, ...prev].slice(0, 50);
+      });
+      setUnreadCount(prev => prev + 1);
     }
   }, [socketNotifications]);
 
   const addNotification = (notification) => {
-    const newNotification = {
+    const newNotif = {
       ...notification,
-      id: notification.id || Date.now() + Math.random(),
+      id: notification.id || `${Date.now()}-${Math.random()}`,
       timestamp: notification.timestamp || new Date(),
     };
-    // don't add duplicate IDs from localStorage
     setNotifications(prev => {
-      if(prev.find(n => n.id === newNotification.id)) return prev;
-      return [newNotification, ...prev].slice(0, 50);
+      if (prev.find(n => n.id === newNotif.id)) return prev;
+      return [newNotif, ...prev].slice(0, 50);
     });
     setUnreadCount(prev => prev + 1);
   };
 
+  // Persist to localStorage
   useEffect(() => {
     localStorage.setItem('ecogrid_notifications', JSON.stringify(notifications));
   }, [notifications]);
@@ -85,46 +82,30 @@ const NotificationSystem = () => {
     localStorage.setItem('ecogrid_unread', unreadCount.toString());
   }, [unreadCount]);
 
-  const dismissNotification = (id) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-    clearNotification(id);
-  };
-
-  const clearAll = () => {
-    setNotifications([]);
-    setUnreadCount(0);
-  };
-
-  const markAllAsRead = () => {
-    setUnreadCount(0);
-  };
-
+  // Expose globally for blockchain events
   useEffect(() => {
     window.addNotification = addNotification;
-    return () => {
-      delete window.addNotification;
-    };
+    return () => { delete window.addNotification; };
   }, []);
 
-  // Fetch initial peak alerts
+  // Fetch forecast alerts ONCE per browser session only
   useEffect(() => {
-    // Add mock global alerts first (Optional but good for fallback)
-    setTimeout(() => {
-      addNotification({
-        id: `sys-${Date.now()}`, type: "peak", title: "Peak Demand Expected",
-        description: "Prices may rise 1.4x from 6 PM to 9 PM. Avoid non-essential usage.",
-      });
-    }, 2000);
+    const alerted = sessionStorage.getItem('ecogrid_forecast_alerted');
+    if (alerted) return; // already ran this session
 
-    // Fetch alerts from forecasting backend
+    sessionStorage.setItem('ecogrid_forecast_alerted', '1');
+
     fetch(`${ML_ECOGRID_API_URL}/forecast`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ zone_name: "Northern", forecast_hours: 24 })
     })
     .then(r => r.json())
     .then(d => {
       if (d.alerts && Array.isArray(d.alerts)) {
-        d.alerts.forEach((a, i) => {
+        // Cap at 3 alerts max to avoid spam
+        const topAlerts = d.alerts.slice(0, 3);
+        topAlerts.forEach((a, i) => {
           setTimeout(() => {
             const typeMap = { high: "error", medium: "peak", low: "success" };
             addNotification({
@@ -133,11 +114,20 @@ const NotificationSystem = () => {
               title: (a.type || "System Alert").replace(/_/g, " "),
               description: a.message,
             });
-          }, 3000 + (i * 1000));
+          }, 1500 + (i * 1500)); // 1.5s apart instead of 1s
         });
       }
-    }).catch(() => {});
+    })
+    .catch(() => {});
   }, []);
+
+  const dismissNotification = (id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+    clearNotification(id);
+  };
+
+  const clearAll = () => { setNotifications([]); setUnreadCount(0); };
+  const markAllAsRead = () => setUnreadCount(0);
 
   return (
     <>
@@ -145,18 +135,14 @@ const NotificationSystem = () => {
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          onClick={() => {
-            setIsOpen(!isOpen);
-            if (!isOpen) markAllAsRead();
-          }}
+          onClick={() => { setIsOpen(!isOpen); if (!isOpen) markAllAsRead(); }}
           className="relative rounded-full p-3 shadow-lg border hover:shadow-xl transition-shadow flex items-center justify-center cursor-pointer"
           style={{ background: C.bg3, borderColor: C.border }}
         >
           <Bell className="w-5 h-5" style={{ color: C.text2 }} />
           {unreadCount > 0 && (
             <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
+              initial={{ scale: 0 }} animate={{ scale: 1 }}
               className="absolute -top-1 -right-1 text-white text-[10px] font-bold w-[18px] h-[18px] rounded-full flex items-center justify-center"
               style={{ background: C.red }}
             >
@@ -177,11 +163,7 @@ const NotificationSystem = () => {
               <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: C.border, background: C.bg3 }}>
                 <h3 className="font-semibold text-sm tracking-wide uppercase" style={{ color: C.text, fontFamily:"'Syne',sans-serif" }}>Notifications</h3>
                 {notifications.length > 0 && (
-                  <button
-                    onClick={clearAll}
-                    style={{ color: C.text3 }}
-                    className="text-xs hover:text-white transition-colors"
-                  >
+                  <button onClick={clearAll} style={{ color: C.text3 }} className="text-xs hover:text-white transition-colors">
                     Clear all
                   </button>
                 )}
@@ -194,13 +176,12 @@ const NotificationSystem = () => {
                   </div>
                 ) : (
                   notifications.map(notification => {
-                    const typeColor = notification.type === 'error' ? C.red : notification.type === 'success' || notification.type === 'trade' ? C.green : notification.type === 'listing' || notification.type === 'peak' ? C.yellow : C.blue;
+                    const typeColor = notification.type === 'error' ? C.red
+                      : notification.type === 'success' || notification.type === 'trade' ? C.green
+                      : notification.type === 'listing' || notification.type === 'peak' ? C.yellow
+                      : C.blue;
                     return (
-                      <div
-                        key={notification.id}
-                        className="p-3 border-b transition-colors hover:bg-black/20"
-                        style={{ borderColor: C.border }}
-                      >
+                      <div key={notification.id} className="p-3 border-b transition-colors hover:bg-black/20" style={{ borderColor: C.border }}>
                         <div className="flex items-start gap-3">
                           <NotificationIcon type={notification.type} />
                           <div className="flex-1 min-w-0">
@@ -209,7 +190,7 @@ const NotificationSystem = () => {
                               <p className="text-xs mt-0.5" style={{ color: C.text2, lineHeight: 1.4 }}>{notification.description}</p>
                             )}
                             <p className="text-[10px] mt-1 uppercase" style={{ color: typeColor }}>
-                              {new Date(notification.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+                              {new Date(notification.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </p>
                           </div>
                           <button
@@ -229,7 +210,6 @@ const NotificationSystem = () => {
           )}
         </AnimatePresence>
       </div>
-
     </>
   );
 };

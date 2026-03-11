@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Menu, Leaf, LayoutDashboard, ShoppingBag, ChevronDown, LogOut, UserCircle, DollarSign, FileText } from "lucide-react"
 import { AuthContext } from "../Context/AuthContext"
+import { useWallet } from "../Context/WalletContext"
 import { Menu as HeadlessMenu, Transition } from "@headlessui/react"
 import { handlesuccess } from "../../utils"
 
@@ -23,6 +24,7 @@ const NavBar = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const { isAuthenticated, setIsAuthenticated, user } = useContext(AuthContext)
+  const { isConnected, walletAddress } = useWallet()
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 10)
@@ -44,17 +46,19 @@ const NavBar = () => {
     setTimeout(() => sessionStorage.removeItem('justLoggedOut'), 500)
   }
 
-  const navItems = isAuthenticated ? [
+  const navItems = [
     { name: "About", path: "/about", icon: <Leaf size={13} /> },
-    { name: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={13} /> },
-    { name: "EnergyForecast", path: "/prosumer", icon: <LayoutDashboard size={13} /> },
     { name: "Marketplace", path: "/marketplace", icon: <ShoppingBag size={13} /> },
     { name: "Blog", path: "/blog", icon: <FileText size={13} /> },
     { name: "Pricing", path: "/pricing", icon: <DollarSign size={13} /> },
-  ] : []
+    ...(isAuthenticated ? [
+      { name: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={13} /> },
+      { name: "EnergyForecast", path: "/prosumer", icon: <LayoutDashboard size={13} /> },
+    ] : []),
+  ]
 
   const navStyle = {
-    position: "fixed", top: 0, width: "100%", zIndex: 50,
+    position: "fixed", top: 0, width: "100%", zIndex: 999,
     background: isScrolled ? "rgba(6,8,16,.97)" : C.bg2,
     borderBottom: `1px solid ${C.border}`,
     backdropFilter: isScrolled ? "blur(20px)" : "none",
@@ -104,7 +108,13 @@ const NavBar = () => {
             })}
 
             {/* Auth */}
-            <div style={{ marginLeft: 12, display: "flex", gap: 8 }}>
+            <div style={{ marginLeft: 12, display: "flex", gap: 8, alignItems: "center" }}>
+              {isConnected && isAuthenticated && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "rgba(0, 229, 160, 0.1)", border: "1px solid rgba(0, 229, 160, 0.2)", borderRadius: 4, color: C.green, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.green, animation: "pulse2 2s infinite" }}></div>
+                  {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "Connected"}
+                </div>
+              )}
               {!isAuthenticated ? (
                 <>
                   <Link to="/login" style={{ textDecoration: "none" }}>
@@ -124,9 +134,9 @@ const NavBar = () => {
                 <HeadlessMenu as="div" style={{ position: "relative" }}>
                   <HeadlessMenu.Button style={{ display: "flex", alignItems: "center", gap: 8, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 12px", cursor: "pointer" }}>
                     <div style={{ width: 26, height: 26, borderRadius: "50%", background: `${C.green}22`, border: `1px solid ${C.green}44`, display: "flex", alignItems: "center", justifyContent: "center", color: C.green, fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12 }}>
-                      {user?.user?.name ? user.user.name.charAt(0).toUpperCase() : "G"}
+                      {user?.user?.name ? user.user.name.charAt(0).toUpperCase() : (user?.name ? user.name.charAt(0).toUpperCase() : "G")}
                     </div>
-                    <span style={{ color: C.text, fontSize: 12, fontFamily: "'JetBrains Mono',monospace" }}>{user?.user?.name || "Guest"}</span>
+                    <span style={{ color: C.text, fontSize: 12, fontFamily: "'JetBrains Mono',monospace" }}>{user?.user?.name || user?.name || "Guest"}</span>
                     <ChevronDown size={13} color={C.text2} />
                   </HeadlessMenu.Button>
                   <Transition as={Fragment}

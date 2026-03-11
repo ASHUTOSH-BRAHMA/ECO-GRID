@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react"
 import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion"
 import { ChevronRight, ChevronLeft, Sun, Wind, Zap, Home, BarChart3, Shield, ArrowRight, Twitter, Facebook, Instagram, Linkedin } from "lucide-react"
 import NavBar from "./NavBar"
+import { useNavigate } from "react-router-dom"
 
 const C = {
   bg: "#060810", bg2: "#0c0f1a", bg3: "#111525",
@@ -78,6 +79,14 @@ const LandingPage = () => {
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] })
   const heroOpacity = useTransform(scrollYProgress, [0, 0.6], [1, 0])
   const heroY = useTransform(scrollYProgress, [0, 0.6], [0, 60])
+
+  const navigate = useNavigate()
+
+  const scrollToFeatures = () => {
+    document.getElementById('features-section')?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const featureRoutes = ["/forecast", "/marketplace", "/dashboard"]
 
   useEffect(() => { const t = setTimeout(() => setShowCTA(true), 1400); return () => clearTimeout(t) }, [])
   useEffect(() => {
@@ -172,10 +181,12 @@ const LandingPage = () => {
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                 style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
                 <motion.button whileHover={{ scale: 1.04, boxShadow: `0 0 30px ${C.green}40` }} whileTap={{ scale: 0.97 }}
+                  onClick={() => navigate('/register')}
                   style={{ padding: "12px 28px", background: `linear-gradient(135deg, ${C.green}, #00b4d8)`, border: "none", borderRadius: 5, color: "#060810", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                   Get Started <ArrowRight size={16} />
                 </motion.button>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                  onClick={scrollToFeatures}
                   style={{ padding: "12px 28px", background: "transparent", border: `1px solid ${C.border2}`, borderRadius: 5, color: C.text2, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, cursor: "pointer" }}>
                   Learn More
                 </motion.button>
@@ -257,7 +268,7 @@ const LandingPage = () => {
       {/* ══════════════════════════════════════════════════
           FEATURES
       ══════════════════════════════════════════════════ */}
-      <section style={{ padding: "100px 24px", background: C.bg2, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}` }}>
+      <section id="features-section" style={{ padding: "100px 24px", background: C.bg2, borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}` }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} style={{ textAlign: "center", marginBottom: 60 }}>
             <SectionLabel>Key Features</SectionLabel>
@@ -280,7 +291,9 @@ const LandingPage = () => {
                 </motion.div>
                 <h3 style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 16, color: C.text, marginBottom: 10 }}>{f.title}</h3>
                 <p style={{ fontSize: 12, color: C.text2, lineHeight: 1.7, marginBottom: 18 }}>{f.desc}</p>
-                <motion.div animate={hoveredFeature === i ? { x: 6 } : { x: 0 }} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: f.color }}>
+                <motion.div animate={hoveredFeature === i ? { x: 6 } : { x: 0 }}
+                  onClick={() => navigate(featureRoutes[i] || '/dashboard')}
+                  style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: f.color, cursor: "pointer" }}>
                   <span>Learn more</span><ArrowRight size={13} />
                 </motion.div>
               </motion.div>
@@ -391,10 +404,12 @@ const LandingPage = () => {
             </p>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
               <motion.button whileHover={{ scale: 1.04, boxShadow: `0 0 30px ${C.green}40` }} whileTap={{ scale: 0.97 }}
+                onClick={() => navigate('/register')}
                 style={{ padding: "12px 28px", background: `linear-gradient(135deg, ${C.green}, #00b4d8)`, border: "none", borderRadius: 5, color: "#060810", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                 Get Started Free <ArrowRight size={16} />
               </motion.button>
               <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                onClick={() => window.location.href = 'mailto:support@ecogrid.io'}
                 style={{ padding: "12px 28px", background: "transparent", border: `1px solid ${C.border2}`, borderRadius: 5, color: C.text2, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, cursor: "pointer" }}>
                 Contact Sales
               </motion.button>
@@ -431,16 +446,34 @@ const LandingPage = () => {
 
             {/* Links */}
             {[
-              { heading: "Product", links: ["Dashboard", "Marketplace", "Forecast", "Pricing"] },
-              { heading: "Resources", links: ["Documentation", "Case Studies", "Blog", "Support"] },
-              { heading: "Company", links: ["About Us", "Careers", "Partners", "Contact"] },
+              { heading: "Product", links: [
+                { label: "Dashboard", to: "/dashboard" },
+                { label: "Marketplace", to: "/marketplace" },
+                { label: "Forecast", to: "/forecast" },
+                { label: "Pricing", to: "/pricing" },
+              ]},
+              { heading: "Resources", links: [
+                { label: "Documentation", to: "/about" },
+                { label: "Case Studies", to: "/blog" },
+                { label: "Blog", to: "/blog" },
+                { label: "Support", to: "mailto:support@ecogrid.io" },
+              ]},
+              { heading: "Company", links: [
+                { label: "About Us", to: "/about" },
+                { label: "Careers", to: "/about" },
+                { label: "Partners", to: "/about" },
+                { label: "Contact", to: "mailto:support@ecogrid.io" },
+              ]},
             ].map(({ heading, links }) => (
               <div key={heading}>
                 <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color: C.text, marginBottom: 14, textTransform: "uppercase", letterSpacing: 1 }}>{heading}</p>
-                {links.map(link => (
-                  <motion.a key={link} href="#" whileHover={{ color: C.green, x: 3 }}
-                    style={{ display: "block", marginBottom: 9, fontSize: 12, color: C.text3, textDecoration: "none", transition: "color .15s" }}>
-                    {link}
+                {links.map(({ label, to }) => (
+                  <motion.a key={label}
+                    href={to.startsWith('mailto') ? to : undefined}
+                    onClick={!to.startsWith('mailto') ? (e) => { e.preventDefault(); navigate(to) } : undefined}
+                    whileHover={{ color: C.green, x: 3 }}
+                    style={{ display: "block", marginBottom: 9, fontSize: 12, color: C.text3, textDecoration: "none", transition: "color .15s", cursor: "pointer" }}>
+                    {label}
                   </motion.a>
                 ))}
               </div>

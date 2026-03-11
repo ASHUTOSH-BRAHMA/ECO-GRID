@@ -1,559 +1,419 @@
 "use client"
 
-import { useState, useEffect, useContext } from "react"
-import { motion } from "framer-motion"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area } from "recharts"
+import { useState, useEffect, useContext, useRef } from "react"
+import { motion, AnimatePresence } from "framer-motion"
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell } from "recharts"
 import {
-  HomeIcon,
-  ZapIcon,
-  ShoppingCartIcon,
-  WalletIcon,
-  TrendingUpIcon,
-  BarChart3Icon,
-  UserIcon,
-  MapPinIcon,
-  LightbulbIcon,
-  PiggyBankIcon,
-  LeafIcon,
-  ArrowRightIcon,
+  HomeIcon, ZapIcon, ShoppingCartIcon, WalletIcon, TrendingUpIcon,
+  BarChart3Icon, UserIcon, MapPinIcon, LightbulbIcon, PiggyBankIcon,
+  LeafIcon, ArrowRightIcon, ClockIcon, DollarSignIcon, AlertCircle,
+  CheckCircle2, TrendingDownIcon, UsersIcon,
 } from "lucide-react"
 import NavBar from "./NavBar"
 import { AuthContext } from "../Context/AuthContext"
 import useSocket from "../hooks/useSocket"
-import { handlesuccess, handleerror } from "../../utils"
 import { apiUrl } from "../config"
 
+// ─── Theme ────────────────────────────────────────────────────────────────
+const C = {
+  bg: "#060810", bg2: "#0c0f1a", bg3: "#111525",
+  border: "#1e2440", border2: "#2a3155",
+  text: "#e8eaf6", text2: "#8892b0", text3: "#4a5568",
+  green: "#00e5a0", red: "#ff4d6d", yellow: "#ffd166",
+  blue: "#4d9fff", purple: "#a78bfa",
+}
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
+  @keyframes pulse2{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  *{box-sizing:border-box}
+  ::-webkit-scrollbar{width:3px}
+  ::-webkit-scrollbar-thumb{background:#2a3155;border-radius:2px}
+`
+
+const Card = ({ title, badge, children, style = {}, accent = C.border }) => (
+  <div style={{ background: C.bg3, border: `1px solid ${accent}`, borderRadius: 8, padding: 16, ...style }}>
+    {(title || badge) && (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 11, fontWeight: 700, color: C.text2, letterSpacing: "1.5px", textTransform: "uppercase" }}>{title}</span>
+        {badge}
+      </div>
+    )}
+    {children}
+  </div>
+)
+
+const Badge = ({ children, color = C.green, bg = "rgba(0,229,160,.12)" }) => (
+  <span style={{ fontSize: 9, padding: "2px 8px", borderRadius: 3, letterSpacing: ".5px", textTransform: "uppercase", background: bg, color, border: `1px solid ${color}40` }}>{children}</span>
+)
+
+const Row = ({ label, value, color = C.text }) => (
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.border}` }}>
+    <span style={{ fontSize: 11, color: C.text2 }}>{label}</span>
+    <span style={{ fontSize: 12, fontWeight: 600, color, fontFamily: "'JetBrains Mono',monospace" }}>{value}</span>
+  </div>
+)
+
+// ─── Main Component ───────────────────────────────────────────────────────
 const ConsumerDashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [consumptionData, setConsumptionData] = useState([])
   const { user } = useContext(AuthContext)
   const { isConnected: socketConnected, energyData: liveEnergyData, subscribeToEnergyData } = useSocket()
 
-  // Consumer-specific data states
-  const [consumptionStats, setConsumptionStats] = useState({ 
-    monthlyUsage: '--', 
-    purchased: '--', 
-    savings: '--', 
-    wallet: '--' 
-  })
-  const [userProfileData, setUserProfileData] = useState({ 
-    location: '--', 
-    energySource: '--', 
-    sellers: '--',
-    carbonFootprint: '--'
-  })
+  const [stats, setStats] = useState({ monthlyUsage: 0, purchased: 0, savings: 0, walletSpent: 0, wallet: "--" })
+  const [profile, setProfile] = useState({ location: "Not set", energySource: "Grid Only", carbonFootprint: 0, sellers: 0 })
   const [energyPrice, setEnergyPrice] = useState(2)
-  const [recommendations, setRecommendations] = useState([])
-  const [gridReferenceRate, setGridReferenceRate] = useState(0.15)
+  const [gridRefRate, setGridRefRate] = useState(0.15)
   const [siteSummary, setSiteSummary] = useState(null)
+  const [opportunities, setOpportunities] = useState([])
+  const [forecast, setForecast] = useState([])
+  const [usageHistory, setUsageHistory] = useState([]) // last 7 readings for sparkline
+  const todayConsumed = useRef(0)
 
-  // Fetch consumer data
+  // ── Fetch all consumer data ───────────────────────────────────────────
   useEffect(() => {
-    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken')
+    const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
     if (!token) return
-    const headers = { Authorization: `Bearer ${token}` }
+    const h = { Authorization: `Bearer ${token}` }
 
-    const fetchConsumerData = async () => {
+    const load = async () => {
+      // Transactions
       try {
-        // Transactions → purchased kWh and savings
-        const txRes = await fetch(apiUrl('/user/transactions'), { headers })
-        if (txRes.ok) {
-          const txData = await txRes.json()
-          if (txData.success) {
-            const purchased = txData.transactions
-              .filter(t => t.type === 'bought')
-              .reduce((sum, t) => sum + (Number(t.energyKwh) || 0), 0)
-            const totalSpent = txData.transactions
-              .filter(t => t.type === 'bought')
-              .reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
-            // Estimate savings compared to grid price (~0.15/kWh)
-            const estimatedGridCost = purchased * 0.15
-            const savings = Math.max(0, estimatedGridCost - totalSpent)
-            const sellers = new Set(txData.transactions.filter(t => t.type === 'bought').map(t => t.counterparty)).size
-            
-            setConsumptionStats(prev => ({ 
-              ...prev, 
-              purchased: `${purchased.toFixed(1)} kWh`,
-              savings: `$${savings.toFixed(2)}`,
-              wallet: `${totalSpent.toFixed(2)} ETK spent`
-            }))
-            setUserProfileData(prev => ({ ...prev, sellers }))
+        const r = await fetch(apiUrl("/user/transactions"), { headers: h })
+        if (r.ok) {
+          const d = await r.json()
+          if (d.success) {
+            const bought = d.transactions.filter(t => t.type === "bought")
+            const kwhBought = bought.reduce((s, t) => s + (Number(t.energyKwh) || 0), 0)
+            const spent = bought.reduce((s, t) => s + (Number(t.amount) || 0), 0)
+            const savings = Math.max(0, kwhBought * 0.15 - spent * 0.05)
+            const sellers = new Set(bought.map(t => t.counterparty)).size
+            setStats(p => ({ ...p, purchased: kwhBought, savings, walletSpent: spent }))
+            setProfile(p => ({ ...p, sellers }))
           }
         }
-      } catch (err) { console.error('Error fetching transactions:', err) }
+      } catch {}
 
+      // Profile
       try {
-        // Profile → location, energy usage
-        const profRes = await fetch(apiUrl('/user/profile'), { headers })
-        if (profRes.ok) {
-          const prof = await profRes.json()
-          const loc = prof.location || 'Not set'
-          const source = prof.hasSolarPanels ? 'Solar + Grid' : 'Grid Only'
-          const wallet = prof.walletAddress ? prof.walletAddress.slice(0, 6) + '...' : 'Not connected'
-          // Estimate carbon footprint (0.4 kg CO2 per kWh from grid)
-          const carbonFootprint = (prof.energyUsage || 0) * 0.4 * 12 // yearly estimate
-          
-          setConsumptionStats(prev => ({ 
-            ...prev, 
-            monthlyUsage: `${prof.energyUsage || 0} kWh/mo`,
-            wallet 
+        const r = await fetch(apiUrl("/user/profile"), { headers: h })
+        if (r.ok) {
+          const d = await r.json()
+          const co2 = (d.energyUsage || 0) * 0.4 * 12
+          setStats(p => ({
+            ...p, monthlyUsage: d.energyUsage || 0,
+            wallet: d.walletAddress ? d.walletAddress.slice(0, 6) + "…" : "N/A"
           }))
-          setUserProfileData(prev => ({ 
-            ...prev, 
-            location: loc, 
-            energySource: source,
-            carbonFootprint: `${carbonFootprint.toFixed(0)} kg/yr`
+          setProfile(p => ({
+            ...p,
+            location: d.location || "Not set",
+            energySource: d.hasSolarPanels ? "Solar + Grid" : "Grid Only",
+            carbonFootprint: co2
           }))
         }
-      } catch (err) { console.error('Error fetching profile:', err) }
+      } catch {}
+
+      // Site summary & pricing
+      try {
+        const r = await fetch(apiUrl("/dashboard/site-summary"), { headers: h })
+        if (r.ok) {
+          const d = await r.json()
+          if (d.success) {
+            setSiteSummary(d)
+            setGridRefRate(d.pricing?.grid_reference_rate_usd || 0.15)
+          }
+        }
+      } catch {}
+
+      // Energy price
+      try {
+        const r = await fetch(apiUrl("/dashboard/energy-price"), { headers: h })
+        if (r.ok) { const d = await r.json(); if (d.success && d.energyPrice) setEnergyPrice(d.energyPrice) }
+      } catch {}
+
+      // Marketplace opportunities (cheapest buy windows)
+      try {
+        const r = await fetch(apiUrl("/dashboard/marketplace-opportunities"), { headers: h })
+        if (r.ok) {
+          const d = await r.json()
+          if (d.success) setOpportunities(d.opportunities)
+        }
+      } catch {}
+
+      // Site forecast for next-6h price chart
+      try {
+        const r = await fetch(apiUrl("/dashboard/site-forecast?hours=12"), { headers: h })
+        if (r.ok) {
+          const d = await r.json()
+          if (d.success) setForecast(d.forecast.slice(0, 12))
+        }
+      } catch {}
     }
 
-    fetchConsumerData()
+    load()
+    const iv = setInterval(load, 60000)
+    return () => clearInterval(iv)
   }, [user])
 
-  // Fetch user's energy price
-  useEffect(() => {
-    const fetchEnergyPrice = async () => {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken')
-      if (!token) return
-      
-      try {
-        const res = await fetch(apiUrl('/dashboard/energy-price'), {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (res.ok) {
-          const data = await res.json()
-          if (data.success && data.energyPrice) {
-            setEnergyPrice(data.energyPrice)
-          }
-          if (data.grid_reference_rate_usd) {
-            setGridReferenceRate(data.grid_reference_rate_usd)
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching energy price:', err)
-      }
-
-      try {
-        const res = await fetch(apiUrl('/dashboard/site-summary'), {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (res.ok) {
-          const data = await res.json()
-          if (data.success) {
-            setSiteSummary(data)
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching site summary:', err)
-      }
-
-      try {
-        const res = await fetch(apiUrl('/dashboard/marketplace-opportunities'), {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        if (res.ok) {
-          const data = await res.json()
-          if (data.success) {
-            setRecommendations(data.opportunities.map((opportunity) => ({
-              icon: opportunity.type === 'sell' ? "⚡" : "💡",
-              title: opportunity.title,
-              desc: opportunity.message
-            })))
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching energy price:', err)
-      }
-    }
-    
-    fetchEnergyPrice()
-  }, [user])
-
-  // Subscribe to consumption updates
-  useEffect(() => {
-    subscribeToEnergyData()
-  }, [subscribeToEnergyData])
-
-  // Update consumption chart when we receive real-time updates
-  useEffect(() => {
-    if (liveEnergyData) {
-      const newTimestamp = new Date().toLocaleTimeString('en-US', { hour12: false })
-      setConsumptionData((prev) => {
-        const newData = [
-          ...prev,
-          {
-            timestamp: newTimestamp,
-            "Energy Consumed": liveEnergyData.consumed || 0,
-            "Grid Price": 0.15,
-            "P2P Price": energyPrice * 0.05, // approximate conversion
-          },
-        ]
-        if (newData.length > 10) {
-          return newData.slice(newData.length - 10)
-        }
-        return newData
-      })
-    }
-  }, [liveEnergyData, energyPrice])
+  // ── Live socket data ──────────────────────────────────────────────────
+  useEffect(() => { subscribeToEnergyData() }, [subscribeToEnergyData])
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
+    if (!liveEnergyData) return
+    const ts = new Date().toLocaleTimeString("en-US", { hour12: false })
+    const consumed = Number(liveEnergyData.site_demand_kwh || liveEnergyData.consumed || 0)
+    todayConsumed.current += consumed
+    setConsumptionData(prev => {
+      const next = [...prev, { timestamp: ts, "Consumed": consumed, "P2P Price": energyPrice * 0.05, "Grid Price": gridRefRate }]
+      return next.length > 15 ? next.slice(next.length - 15) : next
+    })
+    setUsageHistory(prev => {
+      const next = [...prev, consumed]
+      return next.length > 20 ? next.slice(next.length - 20) : next
+    })
+  }, [liveEnergyData, energyPrice, gridRefRate])
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        delayChildren: 0.3,
-        staggerChildren: 0.2,
-      },
-    },
-  }
+  useEffect(() => { const t = setInterval(() => setCurrentTime(new Date()), 1000); return () => clearInterval(t) }, [])
 
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: {
-      y: 0,
-      opacity: 1,
-      transition: {
-        type: "spring",
-        stiffness: 100,
-      },
-    },
-  }
+  // ── Derived values ────────────────────────────────────────────────────
+  const p2pRate = siteSummary?.pricing?.display_rate_usd || energyPrice * 0.05
+  const pctSavings = gridRefRate > 0 ? ((1 - p2pRate / gridRefRate) * 100).toFixed(0) : 0
+  const liveLoad = Number(liveEnergyData?.power_w || 0)
+  const estimatedHourlyCost = (liveLoad / 1000) * p2pRate // kW × $/kWh
+  const dailyBudget = stats.monthlyUsage > 0 ? (stats.monthlyUsage / 30) * p2pRate : 0
+  const todaySpend = todayConsumed.current * p2pRate
+  const budgetPct = dailyBudget > 0 ? Math.min(100, (todaySpend / dailyBudget) * 100) : 0
+
+  // Build bar chart data for usage history
+  const sparkBars = usageHistory.map((v, i) => ({ i, v }))
+
+  // Carbon saved vs grid (grid = 0.4 kg CO₂/kWh, P2P energy mix is ~0.15 avg)
+  const carbonSaved = stats.purchased * 0.25 // 0.4 - 0.15 per kWh
 
   return (
     <>
+      <style>{css}</style>
       <NavBar />
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5 }}
-        className="bg-[#060810] text-[#e8eaf6] min-h-screen p-4 md:p-6 font-sans pt-28 mt-0"
-      >
-        {/* Header */}
-        <motion.div
-          initial={{ y: -50, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.6 }}
-          className="flex justify-between items-center mb-8 bg-[#0c0f1a] border border-[#1e2440] rounded-xl p-5 shadow-[0_0_15px_rgba(0,0,0,0.5)]"
-        >
-          <div className="flex items-center">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 8, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-              className="bg-[#111525] border border-[#4d9fff]/30 p-2 rounded-lg mr-3 shadow-[0_0_10px_rgba(77,159,255,0.2)]"
-            >
-              <HomeIcon className="w-10 h-10 text-[#4d9fff]" />
-            </motion.div>
-            <div>
-              <span className="text-2xl font-bold font-['Syne'] text-[#e8eaf6] tracking-wide">
-                Consumer Dashboard
-              </span>
-              <p className="text-xs text-[#8892b0] font-mono mt-1">Manage your energy consumption</p>
+      <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, paddingTop: 52 }}>
+
+        {/* Top bar */}
+        <div style={{ background: "rgba(6,8,16,.97)", borderBottom: `1px solid ${C.border}`, padding: "0 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 44, position: "sticky", top: 52, zIndex: 40 }}>
+          <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: C.blue }}>
+            EcoGrid <span style={{ color: C.text2, fontWeight: 400 }}>/ Consumer</span>
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: socketConnected ? C.green : C.yellow, animation: "pulse2 2s infinite" }} />
+              <span style={{ fontSize: 10, color: socketConnected ? C.green : C.yellow }}>{socketConnected ? "LIVE" : "CONNECTING"}</span>
             </div>
+            <span style={{ fontSize: 10, color: C.text3 }}>Welcome, <span style={{ color: C.blue }}>{user?.user?.name || user?.name || "Consumer"}</span></span>
+            <span style={{ fontSize: 10, color: C.text3 }}>{currentTime.toLocaleTimeString()}</span>
           </div>
-          <motion.div
-            whileHover={{ scale: 1.05 }}
-            className="flex items-center bg-[#111525] border border-[#1e2440] px-4 py-2 rounded-lg shadow-sm"
-          >
-            <div className="mr-3 text-right">
-              <span className="text-[10px] text-[#8892b0] uppercase tracking-wider block font-bold">Welcome back,</span>
-              <span className="font-semibold text-[#e8eaf6] font-mono text-sm">{user?.user?.name || 'Consumer'}</span>
-            </div>
-            <div className="relative">
-              <div className="w-10 h-10 rounded-full border-2 border-[#1e2440] bg-[#0c0f1a] flex items-center justify-center">
-                <UserIcon className="w-5 h-5 text-[#8892b0]" />
-              </div>
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#00e5a0] rounded-full border-2 border-[#111525]"></span>
-            </div>
-          </motion.div>
-        </motion.div>
+        </div>
 
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-          className="grid grid-cols-1 md:grid-cols-4 gap-6"
-        >
-          {/* Consumption Overview */}
-          <motion.div
-            variants={itemVariants}
-            className="bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440] hover:border-[#4d9fff]/50 transition-colors"
-          >
-            <div className="flex justify-between items-center mb-5 border-b border-[#1e2440] pb-3">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center uppercase tracking-wider">
-                <HomeIcon className="mr-2 text-[#4d9fff]" size={18} />
-                My Consumption
-              </h2>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+        <div style={{ padding: 16, display: "grid", gridTemplateColumns: "240px 1fr 220px", gap: 12, alignItems: "start" }}>
+
+          {/* ── COL 1 ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+            {/* My Consumption KPIs */}
+            <Card title="My Usage" accent={C.blue}>
               {[
-                {
-                  icon: <ZapIcon className="text-[#4d9fff]" size={18} />,
-                  value: consumptionStats.monthlyUsage,
-                  label: "Monthly Usage",
-                  bgColor: "bg-[#4d9fff]/10 border border-[#4d9fff]/30",
-                },
-                {
-                  icon: <ShoppingCartIcon className="text-[#00e5a0]" size={18} />,
-                  value: consumptionStats.purchased,
-                  label: "Energy Bought",
-                  bgColor: "bg-[#00e5a0]/10 border border-[#00e5a0]/30",
-                },
-                {
-                  icon: <PiggyBankIcon className="text-[#ffd166]" size={18} />,
-                  value: consumptionStats.savings,
-                  label: "Est. Savings",
-                  bgColor: "bg-[#ffd166]/10 border border-[#ffd166]/30",
-                },
-                {
-                  icon: <WalletIcon className="text-[#a78bfa]" size={18} />,
-                  value: consumptionStats.wallet,
-                  label: "Wallet",
-                  bgColor: "bg-[#a78bfa]/10 border border-[#a78bfa]/30",
-                },
-              ].map((item, index) => (
-                <motion.div
-                  key={index}
-                  className="flex flex-col items-start p-3 rounded-lg bg-[#111525] border border-[#1e2440] relative overflow-hidden"
-                  whileHover={{ scale: 1.02, backgroundColor: "#1e2440" }}
-                >
-                  <div className={`absolute -right-4 -top-4 opacity-10 p-4 rounded-full ${item.bgColor.split(' ')[0]}`}>
-                    {item.icon}
+                { label: "Monthly Usage", value: `${stats.monthlyUsage} kWh/mo`, color: C.blue },
+                { label: "Energy Bought", value: `${stats.purchased.toFixed(1)} kWh`, color: C.green },
+                { label: "ETK Spent", value: `${stats.walletSpent.toFixed(1)} ETK`, color: C.purple },
+                { label: "Est. Savings", value: `$${stats.savings.toFixed(2)}`, color: C.yellow },
+              ].map(({ label, value, color }) => (
+                <motion.div key={label} whileHover={{ x: 3 }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <span style={{ fontSize: 10, color: C.text3, textTransform: "uppercase", letterSpacing: 1 }}>{label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: "'Syne',sans-serif" }}>{value}</span>
+                </motion.div>
+              ))}
+            </Card>
+
+            {/* Daily Budget Meter */}
+            <Card title="Daily Budget" accent={budgetPct > 80 ? C.red : budgetPct > 50 ? C.yellow : C.green}>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.text3, marginBottom: 6 }}>
+                  <span>Spent Today</span>
+                  <span style={{ color: budgetPct > 80 ? C.red : C.green }}>{budgetPct.toFixed(0)}%</span>
+                </div>
+                <div style={{ height: 6, background: C.bg2, borderRadius: 4, overflow: "hidden" }}>
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${budgetPct}%` }} transition={{ duration: 0.8 }}
+                    style={{ height: "100%", borderRadius: 4, background: budgetPct > 80 ? C.red : budgetPct > 50 ? C.yellow : C.green }} />
+                </div>
+              </div>
+              <Row label="Daily Budget" value={`$${dailyBudget.toFixed(4)}`} />
+              <Row label="Spent Today" value={`$${todaySpend.toFixed(5)}`} color={budgetPct > 80 ? C.red : C.green} />
+              <Row label="Live Load" value={`${liveLoad.toFixed(3)} W`} color={C.blue} />
+              <Row label="Cost/hr (est)" value={`$${(estimatedHourlyCost).toFixed(5)}`} />
+            </Card>
+
+            {/* Carbon Footprint */}
+            <Card title="Carbon Impact" accent={C.green}>
+              {[
+                { label: "Annual CO₂ (est)", value: `${profile.carbonFootprint.toFixed(0)} kg`, color: C.red },
+                { label: "Saved via P2P", value: `${carbonSaved.toFixed(2)} kg`, color: C.green },
+                { label: "Energy Source", value: profile.energySource, color: C.yellow },
+              ].map(({ label, value, color }) => <Row key={label} label={label} value={value} color={color} />)}
+            </Card>
+          </div>
+
+          {/* ── COL 2 ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+            {/* Live Consumption Chart */}
+            <Card title="Live Energy Consumption" badge={
+              <Badge color={socketConnected ? C.green : C.yellow} bg={socketConnected ? "rgba(0,229,160,.1)" : "rgba(255,209,102,.1)"}>
+                {socketConnected ? "Live" : "Connecting"}
+              </Badge>
+            }>
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={consumptionData} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="cGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={C.blue} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={C.blue} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+                  <XAxis dataKey="timestamp" tick={{ fill: C.text3, fontSize: 8 }} axisLine={{ stroke: C.border }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: C.text3, fontSize: 8 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: C.bg2, borderColor: C.border, borderRadius: 4, fontSize: 11 }} />
+                  <Area type="monotone" dataKey="Consumed" stroke={C.blue} strokeWidth={2} fill="url(#cGrad)" dot={false} activeDot={{ r: 4 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Card>
+
+            {/* Price Comparison Chart — P2P vs Grid over next 12h */}
+            <Card title="Rate Forecast — Next 12h" badge={<Badge color={C.green}>P2P cheaper</Badge>}>
+              <ResponsiveContainer width="100%" height={160}>
+                <LineChart data={forecast} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+                  <XAxis dataKey="hour" tickFormatter={h => `${h}:00`} tick={{ fill: C.text3, fontSize: 8 }} axisLine={{ stroke: C.border }} tickLine={false} />
+                  <YAxis tick={{ fill: C.text3, fontSize: 8 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: C.bg2, borderColor: C.border, borderRadius: 4, fontSize: 11 }}
+                    formatter={(v, name) => [`${Number(v).toFixed(4)} tok`, name]} />
+                  <Line type="monotone" dataKey="price_tokens_per_kwh" name="P2P Rate" stroke={C.green} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+                {[
+                  { label: "Current P2P", value: `$${p2pRate.toFixed(3)}/kWh`, color: C.green },
+                  { label: "Grid Rate", value: `$${gridRefRate.toFixed(3)}/kWh`, color: C.red },
+                  { label: "Your Saving", value: `${pctSavings}%`, color: C.yellow },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ textAlign: "center" }}>
+                    <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", marginBottom: 3 }}>{label}</p>
+                    <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13, color }}>{value}</p>
                   </div>
-                  <div className={`mb-2 p-1.5 rounded bg-transparent ${item.bgColor}`}>
-                    {item.icon}
-                  </div>
-                  <div>
-                    <p className="font-mono font-bold text-[#e8eaf6] text-lg">{item.value}</p>
-                    <p className="text-[10px] text-[#8892b0] uppercase tracking-wider font-bold mt-1">{item.label}</p>
+                ))}
+              </div>
+            </Card>
+
+            {/* Best Time To Buy */}
+            <Card title="Cheapest Buy Windows" accent={C.yellow} badge={<Badge color={C.yellow} bg="rgba(255,209,102,.1)">AI Tip</Badge>}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {opportunities.length === 0 ? (
+                  <p style={{ fontSize: 11, color: C.text3, textAlign: "center", padding: "12px 0" }}>Calculating optimal windows…</p>
+                ) : opportunities.map((op, i) => (
+                  <motion.div key={i} whileHover={{ x: 4 }}
+                    style={{ display: "flex", gap: 10, padding: "10px 12px", background: C.bg2, border: `1px solid ${op.type === "buy" ? C.blue + "40" : C.green + "40"}`, borderRadius: 6 }}>
+                    <span style={{ fontSize: 18 }}>{op.type === "sell" ? "⚡" : "💡"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 3 }}>{op.title}</p>
+                      <p style={{ fontSize: 10, color: C.text2, lineHeight: 1.4 }}>{op.message}</p>
+                      {op.recommendedPrice && (
+                        <p style={{ fontSize: 10, color: op.type === "buy" ? C.blue : C.green, marginTop: 4 }}>
+                          Rec. rate: {op.recommendedPrice.toFixed(3)} tok/kWh
+                        </p>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+                <motion.button onClick={() => window.location.href = "/marketplace"} whileHover={{ x: 4 }} whileTap={{ scale: 0.97 }}
+                  style={{ width: "100%", padding: "9px 12px", background: C.bg2, border: `1px solid ${C.green}40`, borderRadius: 6, color: C.green, fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: "'JetBrains Mono',monospace", cursor: "pointer" }}>
+                  Browse Energy Listings <ArrowRightIcon size={12} />
+                </motion.button>
+              </div>
+            </Card>
+          </div>
+
+          {/* ── COL 3 ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+            {/* Profile */}
+            <Card title="My Profile" accent={C.border}>
+              {[
+                { label: "Location", value: profile.location, icon: "📍" },
+                { label: "Wallet", value: stats.wallet, icon: "👛" },
+                { label: "Sellers", value: profile.sellers, icon: "⚡" },
+              ].map(({ label, value, icon }) => (
+                <motion.div key={label} whileHover={{ x: 2 }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <span style={{ fontSize: 14 }}>{icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1 }}>{label}</p>
+                    <p style={{ fontSize: 11, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>
                   </div>
                 </motion.div>
               ))}
-            </div>
-          </motion.div>
+            </Card>
 
-          {/* Live Consumption Chart */}
-          <motion.div
-            variants={itemVariants}
-            className="col-span-1 md:col-span-3 bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440]"
-          >
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 border-b border-[#1e2440] pb-3">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center mb-2 sm:mb-0 uppercase tracking-wider">
-                <BarChart3Icon className="mr-2 text-[#4d9fff]" size={18} />
-                Live Energy Consumption
-              </h2>
-              <div className="flex items-center">
-                <motion.div
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
-                  className={`w-2 h-2 rounded-full ${socketConnected ? 'bg-[#00e5a0]' : 'bg-[#ffd166]'} mr-2`}
-                ></motion.div>
-                <span className={`text-[10px] uppercase font-bold tracking-wider ${socketConnected ? 'text-[#00e5a0]' : 'text-[#ffd166]'}`}>
-                  {socketConnected ? 'Live Updates' : 'Connecting...'}
-                </span>
-              </div>
-            </div>
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={consumptionData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="colorConsumed" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4d9fff" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#060810" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e2440" vertical={false} />
-                <XAxis dataKey="timestamp" tick={{ fill: "#8892b0", fontSize: 10, fontFamily: "monospace" }} axisLine={{ stroke: "#1e2440" }} tickLine={{ stroke: "#1e2440" }} />
-                <YAxis tick={{ fill: "#8892b0", fontSize: 10, fontFamily: "monospace" }} axisLine={{ stroke: "#1e2440" }} tickLine={{ stroke: "#1e2440" }} unit=" kWh" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#111525",
-                    borderColor: "#1e2440",
-                    borderRadius: "4px",
-                    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.5)",
-                    fontFamily: "monospace",
-                    fontSize: "12px"
-                  }}
-                  itemStyle={{ color: "#e8eaf6" }}
-                  labelStyle={{ fontWeight: "bold", color: "#8892b0", marginBottom: "4px" }}
-                  formatter={(value) => `${value} kWh`}
-                />
-                <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingTop: "10px", fontSize: "12px", color: "#8892b0" }} />
-                <Area
-                  type="monotone"
-                  dataKey="Energy Consumed"
-                  stroke="#4d9fff"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorConsumed)"
-                  activeDot={{ r: 6, fill: '#4d9fff', stroke: '#060810', strokeWidth: 2 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </motion.div>
+            {/* Neighbourhood Comparison */}
+            <Card title="vs. Zone Average" accent={C.purple} badge={<Badge color={C.purple} bg="rgba(167,139,250,.1)">Anonymised</Badge>}>
+              {(() => {
+                const zoneAvg = siteSummary?.totals?.average_load_15m_kw || 0
+                const myLoad = Number(liveEnergyData?.instant_load_kw || 0)
+                const pct = zoneAvg > 0 ? ((myLoad / zoneAvg - 1) * 100).toFixed(0) : 0
+                const better = myLoad <= zoneAvg
+                return (
+                  <>
+                    <div style={{ textAlign: "center", padding: "12px 0" }}>
+                      <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 28, color: better ? C.green : C.red }}>
+                        {better ? "↓" : "↑"}{Math.abs(Number(pct))}%
+                      </p>
+                      <p style={{ fontSize: 10, color: C.text3, marginTop: 4 }}>{better ? "below" : "above"} zone avg</p>
+                    </div>
+                    <Row label="Your Load" value={`${myLoad.toFixed(4)} kW`} color={C.blue} />
+                    <Row label="Zone 15m Avg" value={`${zoneAvg.toFixed(4)} kW`} color={C.text2} />
+                    <div style={{ marginTop: 10, padding: "8px 10px", background: C.bg2, borderRadius: 4, border: `1px solid ${(better ? C.green : C.red) + "40"}` }}>
+                      <p style={{ fontSize: 10, color: better ? C.green : C.red, lineHeight: 1.5 }}>
+                        {better
+                          ? "🌿 Great! Your load is below zone average — you may be eligible to sell surplus."
+                          : "⚡ Consider buying during off-peak hours to reduce your cost."}
+                      </p>
+                    </div>
+                  </>
+                )
+              })()}
+            </Card>
 
-          {/* Smart Recommendations */}
-          <motion.div
-            variants={itemVariants}
-            className="bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440] hover:border-[#ffd166]/50 transition-colors"
-          >
-            <div className="border-b border-[#1e2440] pb-3 mb-5">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center uppercase tracking-wider">
-                <LightbulbIcon className="mr-2 text-[#ffd166]" size={18} />
-                Smart Tips
-              </h2>
-            </div>
-            <div className="space-y-3">
-              {recommendations.map((rec, index) => (
-                <motion.div
-                  key={index}
-                  whileHover={{ x: 5 }}
-                  className="flex items-start p-3 rounded bg-[#111525] border border-[#1e2440] hover:border-[#1e2440] transition-colors"
-                >
-                  <span className="text-xl mr-3 bg-[#0c0f1a] p-1.5 rounded border border-[#1e2440]">{rec.icon}</span>
-                  <div>
-                    <p className="font-bold text-[#e8eaf6] text-xs uppercase tracking-wide mb-1">{rec.title}</p>
-                    <p className="text-[10px] text-[#8892b0] leading-tight">{rec.desc}</p>
-                  </div>
-                </motion.div>
+            {/* Quick Actions */}
+            <Card title="Quick Actions">
+              {[
+                { label: "⚡ Buy Energy", color: C.blue, route: "/marketplace" },
+                { label: "📊 Forecast", color: C.purple, route: "/forecast" },
+                { label: "⚙ Settings", color: C.text2, route: "/profile" },
+              ].map(({ label, color, route }) => (
+                <motion.button key={label} whileHover={{ x: 3 }} whileTap={{ scale: 0.97 }}
+                  onClick={() => window.location.href = route}
+                  style={{ width: "100%", padding: "8px 10px", marginBottom: 6, background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color, fontSize: 11, textAlign: "left", fontFamily: "'JetBrains Mono',monospace", cursor: "pointer" }}>
+                  {label}
+                </motion.button>
               ))}
-            </div>
-          </motion.div>
-
-          {/* User Details */}
-          <motion.div
-            variants={itemVariants}
-            className="bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440] hover:border-[#1e2440] transition-colors"
-          >
-            <div className="border-b border-[#1e2440] pb-3 mb-5">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center uppercase tracking-wider">
-                <UserIcon className="mr-2 text-[#8892b0]" size={18} />
-                Profile
-              </h2>
-            </div>
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3">
-                <motion.div whileHover={{ x: 5 }} className="flex justify-between items-center p-3 rounded bg-[#111525] border border-[#1e2440]">
-                  <div className="flex items-center">
-                    <MapPinIcon size={14} className="text-[#8892b0] mr-2" />
-                    <p className="text-[10px] uppercase font-bold text-[#8892b0] tracking-wider">Location</p>
-                  </div>
-                  <p className="font-mono text-sm text-[#e8eaf6] truncate max-w-[140px]" title={userProfileData.location}>
-                      {userProfileData.location}
-                  </p>
-                </motion.div>
-
-                <motion.div whileHover={{ x: 5 }} className="flex justify-between items-center p-3 rounded bg-[#111525] border border-[#1e2440]">
-                  <div className="flex items-center">
-                    <LeafIcon size={14} className="text-[#00e5a0] mr-2" />
-                    <p className="text-[10px] uppercase font-bold text-[#8892b0] tracking-wider">Carbon Footprint</p>
-                  </div>
-                  <p className="font-mono text-[#e8eaf6] text-sm">{userProfileData.carbonFootprint}</p>
-                </motion.div>
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-[#1e2440]">
-                <h3 className="font-bold text-xs text-[#8892b0] uppercase tracking-wider mb-3">Trade Statistics</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    className="bg-[#111525] border border-[#1e2440] p-3 rounded text-center"
-                  >
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-[#8892b0] mb-1">Energy Sellers</p>
-                    <p className="font-mono font-bold text-xl text-[#e8eaf6]">{userProfileData.sellers}</p>
-                  </motion.div>
-                  <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    className="bg-[#111525] border border-[#1e2440] p-3 rounded text-center"
-                  >
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-[#8892b0] mb-1">Source</p>
-                    <p className="font-mono font-bold text-xs text-[#00e5a0] mt-1 truncate">{userProfileData.energySource}</p>
-                  </motion.div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Price Comparison */}
-          <motion.div
-            variants={itemVariants}
-            className="col-span-1 md:col-span-2 bg-[#0c0f1a] rounded-xl p-5 border border-[#1e2440] hover:border-[#1e2440] transition-colors"
-          >
-            <div className="border-b border-[#1e2440] pb-3 mb-5">
-              <h2 className="font-bold text-sm text-[#e8eaf6] flex items-center uppercase tracking-wider">
-                <TrendingUpIcon className="mr-2 text-[#ff4d6d]" size={18} />
-                Rates Breakdown
-              </h2>
-            </div>
-            <div className="space-y-5">
-              <div className="bg-[#111525] border border-[#1e2440] p-4 rounded font-mono text-sm">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-[#8892b0]">TRADITIONAL_GRID</span>
-                  <span className="font-bold text-[#ff4d6d]">${gridReferenceRate.toFixed(3)}/kWh</span>
-                </div>
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-[#8892b0]">ECOGRID_P2P</span>
-                  <span className="font-bold text-[#00e5a0]">${((siteSummary?.pricing?.display_rate_usd) || (energyPrice * 0.05)).toFixed(3)}/kWh</span>
-                </div>
-                <div className="border-t border-dashed border-[#1e2440] my-3"></div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[#e8eaf6] font-bold">EST_SAVINGS_MARGIN</span>
-                  <span className="font-bold text-[#00e5a0]">
-                    {gridReferenceRate > 0 ? ((1 - (((siteSummary?.pricing?.display_rate_usd) || (energyPrice * 0.05)) / gridReferenceRate)) * 100).toFixed(0) : "0"}%
-                  </span>
-                </div>
-              </div>
-
-              <motion.button
-                onClick={() => window.location.href = '/marketplace'}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="w-full bg-[#00e5a0]/10 border border-[#00e5a0]/30 text-[#00e5a0] py-3 rounded text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-[#00e5a0]/20 transition-colors"
-              >
-                Browse Energy Listings
-                <ArrowRightIcon size={14} />
-              </motion.button>
-            </div>
-          </motion.div>
-        </motion.div>
+            </Card>
+          </div>
+        </div>
 
         {/* Footer */}
-        <motion.footer
-          className="bg-[#0c0f1a] border border-[#1e2440] text-[#8892b0] py-6 mt-10 rounded-xl"
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          transition={{ duration: 1 }}
-        >
-          <div className="container mx-auto px-6">
-            <div className="flex flex-col md:flex-row justify-between items-center">
-              <div className="text-center md:text-left mb-4 md:mb-0">
-                <h3 className="text-sm font-bold text-[#e8eaf6] uppercase tracking-wider font-['Syne'] flex items-center"><span className="text-[#00e5a0]">Eco</span>Grid Consumer</h3>
-                <p className="text-[10px] text-[#8892b0] mt-1 font-mono uppercase tracking-widest max-w-md">
-                  Smart energy consumption.
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] text-[#8892b0] font-mono tracking-wider">&copy; {new Date().getFullYear()} EcoGrid. All Rights Reserved.</p>
-              </div>
-            </div>
-          </div>
-        </motion.footer>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-          className="text-[10px] uppercase tracking-wider text-[#8892b0] text-right mt-4 font-mono fixed bottom-4 right-4 bg-[#111525] border border-[#1e2440] px-3 py-1.5 rounded shadow-lg z-50"
-        >
-          SYS_TIME: {currentTime.toLocaleTimeString()}
-        </motion.div>
-      </motion.div>
+        <div style={{ borderTop: `1px solid ${C.border}`, margin: "0 16px", padding: "10px 0", display: "flex", justifyContent: "space-between", fontSize: 10, color: C.text3 }}>
+          <span style={{ color: C.text2 }}>EcoGrid · Consumer Dashboard</span>
+          <span>Last updated: {currentTime.toLocaleString()}</span>
+        </div>
+      </div>
     </>
   )
 }

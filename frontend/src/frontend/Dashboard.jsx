@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect, useContext } from "react"
+import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts"
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area } from "recharts"
 import {
   BatteryChargingIcon, ZapIcon, ShoppingCartIcon, WalletIcon,
   EditIcon, TrendingUpIcon, MapPinIcon, SunIcon, WindIcon,
@@ -24,6 +25,7 @@ const C = {
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
   @keyframes pulse2{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+  @keyframes pulseSkel{0%,100%{opacity:1}50%{opacity:.5}}
   @keyframes spin{to{transform:rotate(360deg)}}
   *{box-sizing:border-box}
   ::-webkit-scrollbar{width:3px;height:3px}
@@ -50,12 +52,16 @@ const Badge = ({ children, color = C.green, bg = "rgba(0,229,160,.12)", border =
   <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 2, letterSpacing: ".5px", textTransform: "uppercase", background: bg, color, border: `1px solid ${border}`, whiteSpace: "nowrap" }}>{children}</span>
 )
 
+const Skel = ({ width = "100%", height = 20, style = {}, circle = false }) => (
+  <div style={{ width, height, background: C.border2, borderRadius: circle ? "50%" : 4, animation: "pulseSkel 1.5s infinite ease-in-out", ...style }} />
+)
+
 const KpiTile = ({ icon, value, label, color }) => (
   <motion.div whileHover={{ scale: 1.03, y: -1 }}
     style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 4, background: C.bg2, border: `1px solid ${C.border}`, overflow: "hidden" }}>
     <div style={{ padding: 6, borderRadius: 4, background: C.bg, border: `1px solid ${C.border}`, color, display: "flex", flexShrink: 0 }}>{icon}</div>
     <div style={{ minWidth: 0 }}>
-      <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color: C.text, lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>
+      {value === null ? <Skel width={60} height={12} style={{ marginBottom: 4 }} /> : <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color: C.text, lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>}
       <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginTop: 3 }}>{label}</p>
     </div>
   </motion.div>
@@ -98,9 +104,10 @@ export default function Dashboard() {
   const [siteSummary, setSiteSummary] = useState(null)
   const { user } = useContext(AuthContext)
   const { isConnected: socketConnected, energyData: liveEnergyData, subscribeToEnergyData } = useSocket()
+  const navigate = useNavigate()
 
-  const [powerBackup, setPowerBackup] = useState({ capacity: '--', sold: '--', purchased: '--', wallet: '--' })
-  const [userProfileData, setUserProfileData] = useState({ location: '--', energySources: '--', buyers: '--', sellers: '--' })
+  const [powerBackup, setPowerBackup] = useState({ capacity: null, sold: null, purchased: null, wallet: null })
+  const [userProfileData, setUserProfileData] = useState({ location: null, energySources: null, buyers: null, sellers: null })
   const [energyPrice, setEnergyPrice] = useState(2)
   const [isSavingPrice, setIsSavingPrice] = useState(false)
 
@@ -152,16 +159,21 @@ export default function Dashboard() {
   useEffect(() => {
     ;(async () => {
       try {
-        const r = await fetch(apiUrl('/dashboard/telemetry/history?window=24h'))
+        const r = await fetch(apiUrl('/dashboard/telemetry/history?window=1h'))
         if (r.ok) {
           const d = await r.json()
-          const history = (d.history || []).map(x => ({
-            timestamp: new Date(x.timestamp).toLocaleTimeString('en-US', { hour12: false }),
-            Voltage: Number(x.voltage_v || 0),
-            Current: Number(x.current_ma || 0),
-            Power: Number(x.power_w || 0),
-            Energy: Number(x.energy_kwh_total || 0) * 1000000,
-          }))
+          const cutoff = Date.now() - 30 * 60 * 1000  // only last 30 minutes
+          const history = (d.history || [])
+            .filter(x => new Date(x.timestamp).getTime() >= cutoff)
+            .map(x => ({
+              timestamp: new Date(x.timestamp).toLocaleTimeString('en-US', { hour12: false }),
+              Voltage: Number(x.voltage_v || 0),
+              Current: Number(x.current_ma || 0),
+              Power: Number(x.power_w || 0),
+              Energy: Number(x.energy_kwh_total || 0) * 1000000,
+              Consumed: Number(x.site_demand_kwh || 0),
+              Produced: Number(x.site_supply_kwh || 0),
+            }))
           setTelemetryData(history.slice(Math.max(history.length - 20, 0)))
         }
       } catch {}
@@ -179,6 +191,8 @@ export default function Dashboard() {
         Current: Number(liveEnergyData.current_ma || 0),
         Power: Number(liveEnergyData.power_w || 0),
         Energy: Number(liveEnergyData.energy_mwh_total || 0),
+        Consumed: Number(liveEnergyData.site_demand_kwh || liveEnergyData.consumed || 0),
+        Produced: Number(liveEnergyData.site_supply_kwh || liveEnergyData.produced || 0),
       }]
       return next.length > 20 ? next.slice(next.length - 20) : next
     })
@@ -208,6 +222,13 @@ export default function Dashboard() {
         total_energy_today_kwh: liveEnergyData.rolling.totalEnergyTodayKwh
       } : prev.totals
     }) : prev)
+
+    if (liveEnergyData.energy_kwh_total !== undefined && liveEnergyData.energy_kwh_total !== null) {
+      setPowerBackup(prev => ({
+        ...prev,
+        capacity: `${Number(liveEnergyData.energy_kwh_total).toFixed(2)} kWh/mo`
+      }))
+    }
   }, [liveEnergyData])
 
   useEffect(() => {
@@ -368,15 +389,15 @@ export default function Dashboard() {
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {[
-                { title: "Voltage", key: "Voltage", color: C.blue },
-                { title: "Current", key: "Current", color: C.yellow },
-                { title: "Power", key: "Power", color: C.green },
-                { title: "Energy", key: "Energy", color: C.purple },
-              ].map(({ title, key, color }) => (
-                <div key={key} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 4, padding: 10 }}>
+                { title: "Voltage", key: "Voltage", color: C.blue, unit: "V" },
+                { title: "Amperage", key: "Current", color: C.yellow, unit: "mA" },
+                { title: "Power", key: "Power", color: C.green, unit: "W" },
+                { title: "Energy", key: "Energy", color: C.purple, unit: "kWh" },
+              ].map(({ title, key, color, unit }) => (
+                <div key={key} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 4, padding: 10, minWidth: 0, overflow: "hidden" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <span style={{ fontSize: 10, color: C.text2, textTransform: "uppercase", letterSpacing: 1 }}>{title} Trend</span>
-                    <span style={{ fontSize: 9, color }}>━ {title}</span>
+                    <span style={{ fontSize: 9, color }}>━ {title} ({unit})</span>
                   </div>
                   <ResponsiveContainer width="100%" height={145}>
                     <LineChart data={telemetryData} margin={{ top: 5, right: 8, left: -16, bottom: 12 }}>
@@ -420,6 +441,58 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+
+            {/* ── Production vs Consumption chart ── */}
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 11, fontWeight: 700, color: C.text2, letterSpacing: "1.5px", textTransform: "uppercase" }}>Energy Flow — Consumed vs Produced</span>
+                <div style={{ display: "flex", gap: 14 }}>
+                  <span style={{ fontSize: 9, color: C.red }}>━ Consumed</span>
+                  <span style={{ fontSize: 9, color: C.green }}>━ Produced</span>
+                </div>
+              </div>
+
+              {/* Today's balance row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
+                {[
+                  { label: "Consumed Today", value: `${((siteSummary?.totals?.total_demand_today_kwh || 0) * 1000).toFixed(3)} Wh`, color: C.red },
+                  { label: "Produced Today", value: `${((siteSummary?.totals?.total_supply_today_kwh || 0) * 1000).toFixed(3)} Wh`, color: C.green },
+                  { label: "Net Balance", value: `${(((siteSummary?.totals?.total_supply_today_kwh || 0) - (siteSummary?.totals?.total_demand_today_kwh || 0)) * 1000).toFixed(3)} Wh`, color: ((siteSummary?.totals?.total_supply_today_kwh || 0) >= (siteSummary?.totals?.total_demand_today_kwh || 0)) ? C.green : C.red },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 4, padding: "8px 10px", textAlign: "center" }}>
+                    <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</p>
+                    <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13, color }}>{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 4, padding: 10 }}>
+                <ResponsiveContainer width="100%" height={160}>
+                  <AreaChart data={telemetryData} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="gradConsumed" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={C.red} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={C.red} stopOpacity={0.0} />
+                      </linearGradient>
+                      <linearGradient id="gradProduced" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={C.green} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={C.green} stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
+                    <XAxis dataKey="timestamp" tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }} axisLine={{ stroke: C.border }} tickLine={false} interval="preserveStartEnd" minTickGap={24} tickFormatter={formatTrendTick} />
+                    <YAxis tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }} axisLine={false} tickLine={false} tickFormatter={v => v === 0 ? '0' : v.toExponential(1)} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: C.bg2, borderColor: C.border, borderRadius: 4, color: C.text, fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }}
+                      labelStyle={{ color: C.text2, marginBottom: 4 }}
+                      formatter={(val, name) => [`${Number(val).toExponential(3)} kWh`, name]}
+                    />
+                    <Area type="monotone" dataKey="Consumed" stroke={C.red} strokeWidth={2} fill="url(#gradConsumed)" dot={false} activeDot={{ r: 4 }} />
+                    <Area type="monotone" dataKey="Produced" stroke={C.green} strokeWidth={2} fill="url(#gradProduced)" dot={false} activeDot={{ r: 4 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </Card>
 
           {/* ── COL 3: User Profile ── */}
@@ -433,7 +506,7 @@ export default function Dashboard() {
                   <div style={{ padding: 5, borderRadius: 3, background: C.bg, border: `1px solid ${C.border}`, display: "flex", flexShrink: 0 }}>{icon}</div>
                   <div style={{ minWidth: 0 }}>
                     <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1 }}>{label}</p>
-                    <p style={{ fontSize: 11, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>
+                    {value === null ? <Skel width={80} height={12} style={{ marginTop: 2 }} /> : <p style={{ fontSize: 11, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>}
                   </div>
                 </motion.div>
               ))}
@@ -445,7 +518,7 @@ export default function Dashboard() {
                     <motion.div key={label} whileHover={{ scale: 1.04, y: -2 }}
                       style={{ background: C.bg2, border: `1px solid ${C.border}`, padding: "10px 8px", borderRadius: 4, textAlign: "center" }}>
                       <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</p>
-                      <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, color, lineHeight: 1 }}>{val}</p>
+                      {val === null ? <div style={{ display: "flex", justifyContent: "center" }}><Skel width={30} height={22} /></div> : <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, color, lineHeight: 1 }}>{val}</p>}
                     </motion.div>
                   ))}
                 </div>
@@ -456,11 +529,12 @@ export default function Dashboard() {
                 <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Quick Actions</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {[
-                    { label: "⚡ Trade Energy", color: C.green },
-                    { label: "📊 View Reports", color: C.blue },
-                    { label: "⚙ Settings", color: C.text2 },
-                  ].map(({ label, color }) => (
+                    { label: "⚡ Trade Energy", color: C.green, route: "/marketplace" },
+                    { label: "📊 View Reports", color: C.blue, route: "/prosumer" },
+                    { label: "⚙ Settings", color: C.text2, route: "/profile" },
+                  ].map(({ label, color, route }) => (
                     <motion.button key={label} whileHover={{ x: 3 }} whileTap={{ scale: 0.97 }}
+                      onClick={() => navigate(route)}
                       style={{ width: "100%", padding: "7px 10px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color, fontSize: 11, textAlign: "left", fontFamily: "'JetBrains Mono',monospace" }}>
                       {label}
                     </motion.button>
