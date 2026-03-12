@@ -1,15 +1,17 @@
 "use client"
 
 import { useState, useEffect, useContext } from "react"
+import { useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell, PieChart, Pie } from "recharts"
 import {
   Building2Icon, ZapIcon, UsersIcon, TrendingUpIcon, BarChart3Icon, ActivityIcon,
   AlertTriangleIcon, CheckCircleIcon, ArrowRightIcon, DollarSignIcon, GaugeIcon,
-  WifiIcon, ShieldCheckIcon, ListIcon, RefreshCwIcon,
+  WifiIcon, ShieldCheckIcon, ListIcon, RefreshCwIcon, MapPinIcon, WalletIcon, UserCircleIcon,
 } from "lucide-react"
 import NavBar from "./NavBar"
 import { AuthContext } from "../Context/AuthContext"
+import { useWallet } from "../Context/WalletContext"
 import useSocket from "../hooks/useSocket"
 import { apiUrl } from "../config"
 
@@ -71,9 +73,16 @@ const UtilityDashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [gridHistory, setGridHistory] = useState([])
   const { user } = useContext(AuthContext)
+  const navigate = useNavigate()
+  const { isConnected: walletConnected, walletAddress } = useWallet()
   const { isConnected: socketConnected, energyData: liveEnergyData, subscribeToEnergyData } = useSocket()
 
   const [siteSummary, setSiteSummary] = useState(null)
+  const [profileData, setProfileData] = useState({
+    location: "Not set",
+    energyUsage: 0,
+    hasSolarPanels: false,
+  })
   const [allTransactions, setAllTransactions] = useState([])
   const [allListings, setAllListings] = useState([])
   const [userStats, setUserStats] = useState([]) // per-user aggregate
@@ -84,6 +93,11 @@ const UtilityDashboard = () => {
   const [lastRefresh, setLastRefresh] = useState(null)
 
   const healthScore = calcHealthScore(siteSummary, socketConnected)
+  const walletDisplay = walletAddress
+    ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+    : walletConnected
+      ? "Connected"
+      : "N/A"
 
   const fetchAll = async (showSpinner = false) => {
     if (showSpinner) setRefreshing(true)
@@ -100,6 +114,19 @@ const UtilityDashboard = () => {
           setAlerts(d.alerts || [])
           setEnergyMix(d.energyMix || [])
         }
+      }
+    } catch {}
+
+    // Logged-in utility profile
+    try {
+      const r = await fetch(apiUrl("/user/profile"), { headers: h })
+      if (r.ok) {
+        const d = await r.json()
+        setProfileData({
+          location: d.location || "Not set",
+          energyUsage: Number(d.energyUsage || 0),
+          hasSolarPanels: Boolean(d.hasSolarPanels),
+        })
       }
     } catch {}
 
@@ -206,6 +233,10 @@ const UtilityDashboard = () => {
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: socketConnected ? C.green : C.yellow, animation: "pulse2 2s infinite" }} />
               <span style={{ fontSize: 10, color: socketConnected ? C.green : C.yellow }}>{socketConnected ? "GRID ONLINE" : "CONNECTING"}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "rgba(167,139,250,.08)", border: "1px solid rgba(167,139,250,.18)", borderRadius: 4 }}>
+              <WalletIcon size={10} color={C.purple} />
+              <span style={{ fontSize: 10, color: C.purple }}>{walletDisplay}</span>
             </div>
             <motion.button whileHover={{ scale: 1.05 }} onClick={() => fetchAll(true)}
               style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color: C.text2, fontSize: 10, cursor: "pointer", fontFamily: "'JetBrains Mono',monospace" }}>
@@ -401,6 +432,35 @@ const UtilityDashboard = () => {
 
             {/* 24h Demand Forecast */}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Card title="Operator Profile" accent={C.purple}>
+                {[
+                  { label: "Operator", value: user?.user?.name || user?.name || "Grid Operator", icon: <UserCircleIcon size={14} color={C.purple} /> },
+                  { label: "Role", value: user?.user?.userType || user?.userType || "utility", icon: <Building2Icon size={14} color={C.blue} /> },
+                  { label: "Location", value: profileData.location, icon: <MapPinIcon size={14} color={C.green} /> },
+                  { label: "Wallet", value: walletDisplay, icon: <WalletIcon size={14} color={C.yellow} /> },
+                ].map(({ label, value, icon }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <span style={{ display: "flex", alignItems: "center" }}>{icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1 }}>{label}</p>
+                      <p style={{ fontSize: 11, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+                  <div style={{ background: C.bg2, borderRadius: 4, padding: "8px 10px" }}>
+                    <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", marginBottom: 4 }}>Baseline Load</p>
+                    <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color: C.blue }}>{profileData.energyUsage} kWh/mo</p>
+                  </div>
+                  <div style={{ background: C.bg2, borderRadius: 4, padding: "8px 10px" }}>
+                    <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", marginBottom: 4 }}>Backup Assets</p>
+                    <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color: profileData.hasSolarPanels ? C.green : C.text2 }}>
+                      {profileData.hasSolarPanels ? "Distributed Solar" : "Grid Only"}
+                    </p>
+                  </div>
+                </div>
+              </Card>
+
               <Card title="24h Demand Forecast" badge={<Badge color={C.purple} bg="rgba(167,139,250,.1)">ML</Badge>}>
                 <ResponsiveContainer width="100%" height={180}>
                   <AreaChart data={forecast} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
@@ -451,10 +511,11 @@ const UtilityDashboard = () => {
                 {[
                   { label: "⚡ Manage Listings", color: C.yellow, route: "/marketplace" },
                   { label: "📊 Energy Forecast", color: C.purple, route: "/forecast" },
+                  { label: "👤 Profile", color: C.green, route: "/profile" },
                   { label: "⚙ Settings", color: C.text2, route: "/profile" },
                 ].map(({ label, color, route }) => (
                   <motion.button key={label} whileHover={{ x: 3 }} whileTap={{ scale: 0.97 }}
-                    onClick={() => window.location.href = route}
+                    onClick={() => navigate(route)}
                     style={{ width: "100%", padding: "8px 10px", marginBottom: 6, background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color, fontSize: 11, textAlign: "left", fontFamily: "'JetBrains Mono',monospace", cursor: "pointer" }}>
                     {label}
                   </motion.button>

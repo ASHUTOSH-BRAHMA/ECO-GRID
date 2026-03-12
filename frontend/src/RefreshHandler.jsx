@@ -5,7 +5,7 @@ import { AuthContext } from "./Context/AuthContext.jsx";
 const RefreshHandler = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { isAuthenticated } = useContext(AuthContext);
+    const { isAuthenticated, user } = useContext(AuthContext);
     
     // Use a ref to track if this is the initial login
     const isInitialMount = useRef(true);
@@ -28,11 +28,13 @@ const RefreshHandler = () => {
         lastPathRef.current = location.pathname;
         
         // Only check if actively navigating TO login/register from another page
+        const needsOnboarding = isAuthenticated && user && !(user?.onboardingCompleted ?? user?.user?.onboardingCompleted ?? false);
+
         if (isAuthenticated && (location.pathname === "/login" || location.pathname === "/register")) {
             // Ensure user is redirected properly
-            navigate("/dashboard"); // Redirect to dashboard instead of login/register
+            navigate(needsOnboarding ? "/onboarding" : "/dashboard");
         }
-    }, [isAuthenticated, location.pathname, navigate]);
+    }, [isAuthenticated, location.pathname, navigate, user]);
     
     return null;
 };

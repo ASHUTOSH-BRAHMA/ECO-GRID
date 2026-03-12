@@ -19,6 +19,7 @@ const UserSchema = mongoose.Schema({
     userType: {
         type: String,
         required: true,
+        default: 'consumer',
         enum: ['prosumer', 'consumer', 'utility']
     },
     onboardingCompleted: { type: Boolean, default: false }, // ✅ Change from isNewUser

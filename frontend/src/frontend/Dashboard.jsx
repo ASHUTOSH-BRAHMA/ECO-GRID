@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import NavBar from "./NavBar"
 import { AuthContext } from "../Context/AuthContext"
+import { useWallet } from "../Context/WalletContext"
 import useSocket from "../hooks/useSocket"
 import { handlesuccess, handleerror } from "../../utils"
 import { apiUrl } from "../config"
@@ -61,7 +62,9 @@ const KpiTile = ({ icon, value, label, color }) => (
     style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 4, background: C.bg2, border: `1px solid ${C.border}`, overflow: "hidden" }}>
     <div style={{ padding: 6, borderRadius: 4, background: C.bg, border: `1px solid ${C.border}`, color, display: "flex", flexShrink: 0 }}>{icon}</div>
     <div style={{ minWidth: 0 }}>
-      {value === null ? <Skel width={60} height={12} style={{ marginBottom: 4 }} /> : <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color: C.text, lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>}
+      {value === null
+        ? <Skel width={60} height={12} style={{ marginBottom: 4 }} />
+        : <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, color: C.text, lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>}
       <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginTop: 3 }}>{label}</p>
     </div>
   </motion.div>
@@ -83,17 +86,13 @@ const getTrendDomain = (data, key) => {
   const values = data
     .map((item) => Number(item?.[key]))
     .filter((value) => Number.isFinite(value))
-
   if (!values.length) return [0, 1]
-
   const min = Math.min(...values)
   const max = Math.max(...values)
-
   if (min === max) {
     const padding = Math.max(Math.abs(min) * 0.05, 1)
     return [min - padding, max + padding]
   }
-
   const padding = (max - min) * 0.08
   return [min - padding, max + padding]
 }
@@ -103,47 +102,96 @@ export default function Dashboard() {
   const [telemetryData, setTelemetryData] = useState([])
   const [siteSummary, setSiteSummary] = useState(null)
   const { user } = useContext(AuthContext)
+
+  // ── Pull live wallet address directly from WalletContext ──────────────────
+  // This means the KpiTile updates the moment MetaMask connects/disconnects,
+  // without needing a profile re-fetch.
+  const { isConnected: walletConnected, walletAddress } = useWallet()
+
   const { isConnected: socketConnected, energyData: liveEnergyData, subscribeToEnergyData } = useSocket()
   const navigate = useNavigate()
 
-  const [powerBackup, setPowerBackup] = useState({ capacity: null, sold: null, purchased: null, wallet: null })
-  const [userProfileData, setUserProfileData] = useState({ location: null, energySources: null, buyers: null, sellers: null })
+  const [powerBackup, setPowerBackup] = useState({
+    capacity: null,
+    sold: null,
+    purchased: null,
+  })
+  const [userProfileData, setUserProfileData] = useState({
+    location: null, energySources: null, buyers: null, sellers: null,
+  })
   const [energyPrice, setEnergyPrice] = useState(2)
   const [isSavingPrice, setIsSavingPrice] = useState(false)
 
+  // ── Derive the wallet display value from live WalletContext ───────────────
+  // walletAddress comes from MetaMask in real-time, so connecting/disconnecting
+  // in Profile (or anywhere) is reflected here immediately.
+  const walletDisplay = walletAddress
+    ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
+    : walletConnected
+      ? "Connected"
+      : "N/A"
+
   useEffect(() => {
-    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken')
+    const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
     if (!token) return
     const headers = { Authorization: `Bearer ${token}` }
+
     const fetchDashboardState = async () => {
       try {
-        const r = await fetch(apiUrl('/user/transactions'), { headers })
+        const r = await fetch(apiUrl("/user/transactions"), { headers })
         if (r.ok) {
           const d = await r.json()
           if (d.success) {
-            const sold = d.transactions.filter(t => t.type === 'sold').reduce((s, t) => s + (Number(t.energyKwh) || 0), 0)
-            const purchased = d.transactions.filter(t => t.type === 'bought').reduce((s, t) => s + (Number(t.energyKwh) || 0), 0)
-            const buyers = new Set(d.transactions.filter(t => t.type === 'sold').map(t => t.counterparty)).size
-            const sellers = new Set(d.transactions.filter(t => t.type === 'bought').map(t => t.counterparty)).size
-            setPowerBackup(p => ({ ...p, sold: `${sold.toFixed(1)} kWh`, purchased: `${purchased.toFixed(1)} kWh` }))
-            setUserProfileData(p => ({ ...p, buyers, sellers }))
+            const sold = d.transactions
+              .filter((t) => t.type === "sold")
+              .reduce((s, t) => s + (Number(t.energyKwh) || 0), 0)
+            const purchased = d.transactions
+              .filter((t) => t.type === "bought")
+              .reduce((s, t) => s + (Number(t.energyKwh) || 0), 0)
+            const buyers = new Set(
+              d.transactions.filter((t) => t.type === "sold").map((t) => t.counterparty)
+            ).size
+            const sellers = new Set(
+              d.transactions.filter((t) => t.type === "bought").map((t) => t.counterparty)
+            ).size
+            setPowerBackup((p) => ({
+              ...p,
+              sold: `${sold.toFixed(1)} kWh`,
+              purchased: `${purchased.toFixed(1)} kWh`,
+            }))
+            setUserProfileData((p) => ({ ...p, buyers, sellers }))
           }
         }
       } catch {}
+
       try {
-        const r = await fetch(apiUrl('/user/profile'), { headers })
+        const r = await fetch(apiUrl("/user/profile"), { headers })
         if (r.ok) {
           const p = await r.json()
-          setPowerBackup(prev => ({ ...prev, capacity: `${p.energyUsage || 0} kWh/mo`, wallet: p.walletAddress ? p.walletAddress.slice(0, 6) + '…' : 'N/A' }))
-          setUserProfileData(prev => ({ ...prev, location: p.location || 'Not set', energySources: p.hasSolarPanels ? 'Solar' : 'Grid' }))
+          setPowerBackup((prev) => ({
+            ...prev,
+            capacity: `${p.energyUsage || 0} kWh/mo`,
+            // ↑ wallet is intentionally NOT set here anymore — it comes from
+            //   WalletContext live so it stays in sync without re-fetching.
+          }))
+          setUserProfileData((prev) => ({
+            ...prev,
+            location: p.location || "Not set",
+            energySources: p.hasSolarPanels ? "Solar" : "Grid",
+          }))
         }
       } catch {}
+
       try {
-        const r = await fetch(apiUrl('/dashboard/energy-price'), { headers })
-        if (r.ok) { const d = await r.json(); if (d.success && d.energyPrice) setEnergyPrice(d.energyPrice) }
+        const r = await fetch(apiUrl("/dashboard/energy-price"), { headers })
+        if (r.ok) {
+          const d = await r.json()
+          if (d.success && d.energyPrice) setEnergyPrice(d.energyPrice)
+        }
       } catch {}
+
       try {
-        const r = await fetch(apiUrl('/dashboard/site-summary'), { headers })
+        const r = await fetch(apiUrl("/dashboard/site-summary"), { headers })
         if (r.ok) {
           const d = await r.json()
           if (d.success) setSiteSummary(d)
@@ -159,14 +207,14 @@ export default function Dashboard() {
   useEffect(() => {
     ;(async () => {
       try {
-        const r = await fetch(apiUrl('/dashboard/telemetry/history?window=1h'))
+        const r = await fetch(apiUrl("/dashboard/telemetry/history?window=1h"))
         if (r.ok) {
           const d = await r.json()
-          const cutoff = Date.now() - 30 * 60 * 1000  // only last 30 minutes
+          const cutoff = Date.now() - 30 * 60 * 1000
           const history = (d.history || [])
-            .filter(x => new Date(x.timestamp).getTime() >= cutoff)
-            .map(x => ({
-              timestamp: new Date(x.timestamp).toLocaleTimeString('en-US', { hour12: false }),
+            .filter((x) => new Date(x.timestamp).getTime() >= cutoff)
+            .map((x) => ({
+              timestamp: new Date(x.timestamp).toLocaleTimeString("en-US", { hour12: false }),
               Voltage: Number(x.voltage_v || 0),
               Current: Number(x.current_ma || 0),
               Power: Number(x.power_w || 0),
@@ -183,50 +231,66 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!liveEnergyData) return
-    const ts = new Date().toLocaleTimeString('en-US', { hour12: false })
-    setTelemetryData(prev => {
-      const next = [...prev, {
-        timestamp: ts,
-        Voltage: Number(liveEnergyData.voltage_v || 0),
-        Current: Number(liveEnergyData.current_ma || 0),
-        Power: Number(liveEnergyData.power_w || 0),
-        Energy: Number(liveEnergyData.energy_mwh_total || 0),
-        Consumed: Number(liveEnergyData.site_demand_kwh || liveEnergyData.consumed || 0),
-        Produced: Number(liveEnergyData.site_supply_kwh || liveEnergyData.produced || 0),
-      }]
+    const ts = new Date().toLocaleTimeString("en-US", { hour12: false })
+    setTelemetryData((prev) => {
+      const next = [
+        ...prev,
+        {
+          timestamp: ts,
+          Voltage: Number(liveEnergyData.voltage_v || 0),
+          Current: Number(liveEnergyData.current_ma || 0),
+          Power: Number(liveEnergyData.power_w || 0),
+          Energy: Number(liveEnergyData.energy_mwh_total || 0),
+          Consumed: Number(liveEnergyData.site_demand_kwh || liveEnergyData.consumed || 0),
+          Produced: Number(liveEnergyData.site_supply_kwh || liveEnergyData.produced || 0),
+        },
+      ]
       return next.length > 20 ? next.slice(next.length - 20) : next
     })
-    setSiteSummary(prev => prev ? ({
-      ...prev,
-      deviceStatus: liveEnergyData.deviceStatus || prev.deviceStatus,
-      freshnessMs: liveEnergyData.freshnessMs ?? prev.freshnessMs,
-      current: {
-        ...(prev.current || {}),
-        voltage_v: liveEnergyData.voltage_v ?? prev.current?.voltage_v,
-        current_ma: liveEnergyData.current_ma ?? prev.current?.current_ma,
-        power_mw: liveEnergyData.power_mw ?? prev.current?.power_mw,
-        power_w: liveEnergyData.power_w ?? prev.current?.power_w,
-        instant_load_kw: liveEnergyData.instant_load_kw ?? prev.current?.instant_load_kw,
-        energy_mwh_total: liveEnergyData.energy_mwh_total ?? prev.current?.energy_mwh_total,
-        energy_kwh_total: liveEnergyData.energy_kwh_total ?? prev.current?.energy_kwh_total,
-        energy_delta_kwh: liveEnergyData.energy_delta_kwh ?? prev.current?.energy_delta_kwh,
-        load_trend: liveEnergyData.rolling ? (liveEnergyData.rolling.avg1mKw > liveEnergyData.rolling.avg15mKw ? 'rising' : liveEnergyData.rolling.avg1mKw < liveEnergyData.rolling.avg15mKw ? 'falling' : 'stable') : prev.current?.load_trend
-      },
-      pricing: liveEnergyData.pricing || prev.pricing,
-      totals: liveEnergyData.rolling ? {
-        ...(prev.totals || {}),
-        average_load_1m_kw: liveEnergyData.rolling.avg1mKw,
-        average_load_5m_kw: liveEnergyData.rolling.avg5mKw,
-        average_load_15m_kw: liveEnergyData.rolling.avg15mKw,
-        peak_power_today_kw: liveEnergyData.rolling.peakTodayKw,
-        total_energy_today_kwh: liveEnergyData.rolling.totalEnergyTodayKwh
-      } : prev.totals
-    }) : prev)
 
-    if (liveEnergyData.energy_kwh_total !== undefined && liveEnergyData.energy_kwh_total !== null) {
-      setPowerBackup(prev => ({
+    setSiteSummary((prev) =>
+      prev
+        ? {
+            ...prev,
+            deviceStatus: liveEnergyData.deviceStatus || prev.deviceStatus,
+            freshnessMs: liveEnergyData.freshnessMs ?? prev.freshnessMs,
+            current: {
+              ...(prev.current || {}),
+              voltage_v: liveEnergyData.voltage_v ?? prev.current?.voltage_v,
+              current_ma: liveEnergyData.current_ma ?? prev.current?.current_ma,
+              power_mw: liveEnergyData.power_mw ?? prev.current?.power_mw,
+              power_w: liveEnergyData.power_w ?? prev.current?.power_w,
+              instant_load_kw: liveEnergyData.instant_load_kw ?? prev.current?.instant_load_kw,
+              energy_mwh_total: liveEnergyData.energy_mwh_total ?? prev.current?.energy_mwh_total,
+              energy_kwh_total: liveEnergyData.energy_kwh_total ?? prev.current?.energy_kwh_total,
+              energy_delta_kwh: liveEnergyData.energy_delta_kwh ?? prev.current?.energy_delta_kwh,
+              load_trend: liveEnergyData.rolling
+                ? liveEnergyData.rolling.avg1mKw > liveEnergyData.rolling.avg15mKw
+                  ? "rising"
+                  : liveEnergyData.rolling.avg1mKw < liveEnergyData.rolling.avg15mKw
+                    ? "falling"
+                    : "stable"
+                : prev.current?.load_trend,
+            },
+            pricing: liveEnergyData.pricing || prev.pricing,
+            totals: liveEnergyData.rolling
+              ? {
+                  ...(prev.totals || {}),
+                  average_load_1m_kw: liveEnergyData.rolling.avg1mKw,
+                  average_load_5m_kw: liveEnergyData.rolling.avg5mKw,
+                  average_load_15m_kw: liveEnergyData.rolling.avg15mKw,
+                  peak_power_today_kw: liveEnergyData.rolling.peakTodayKw,
+                  total_energy_today_kwh: liveEnergyData.rolling.totalEnergyTodayKwh,
+                }
+              : prev.totals,
+          }
+        : prev
+    )
+
+    if (liveEnergyData.energy_kwh_total != null) {
+      setPowerBackup((prev) => ({
         ...prev,
-        capacity: `${Number(liveEnergyData.energy_kwh_total).toFixed(2)} kWh/mo`
+        capacity: `${Number(liveEnergyData.energy_kwh_total).toFixed(2)} kWh/mo`,
       }))
     }
   }, [liveEnergyData])
@@ -239,37 +303,56 @@ export default function Dashboard() {
   const savePrice = async () => {
     setIsSavingPrice(true)
     try {
-      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken')
-      const r = await fetch(apiUrl('/dashboard/energy-price'), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ energyPrice })
+      const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+      const r = await fetch(apiUrl("/dashboard/energy-price"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ energyPrice }),
       })
-      r.ok ? handlesuccess('Price saved!') : handleerror('Failed to save')
-    } catch { handleerror('Error saving') }
-    finally { setIsSavingPrice(false) }
+      r.ok ? handlesuccess("Price saved!") : handleerror("Failed to save")
+    } catch {
+      handleerror("Error saving")
+    } finally {
+      setIsSavingPrice(false)
+    }
   }
 
   const marketAverage = siteSummary?.pricing?.base_rate || 2
   const comparisonDelta = marketAverage ? ((energyPrice - marketAverage) / marketAverage) * 100 : 0
   const comparison = comparisonDelta >= 0 ? `+${comparisonDelta.toFixed(0)}% ▲` : `${comparisonDelta.toFixed(0)}% ▼`
-  const trendLabel = siteSummary?.current?.load_trend === 'rising'
-    ? 'Rising Load'
-    : siteSummary?.current?.load_trend === 'falling'
-      ? 'Falling Load'
-      : 'Stable Load'
-  const trendColor = siteSummary?.current?.load_trend === 'rising' ? C.yellow : siteSummary?.current?.load_trend === 'falling' ? C.blue : C.green
+
+  const trendLabel =
+    siteSummary?.current?.load_trend === "rising"
+      ? "Rising Load"
+      : siteSummary?.current?.load_trend === "falling"
+        ? "Falling Load"
+        : "Stable Load"
+  const trendColor =
+    siteSummary?.current?.load_trend === "rising"
+      ? C.yellow
+      : siteSummary?.current?.load_trend === "falling"
+        ? C.blue
+        : C.green
+
   const miniStats = [
-    { label: "Peak Today", value: `${(siteSummary?.totals?.peak_power_today_kw || 0).toFixed(3)} kW`, color: C.yellow },
-    { label: "Avg Load", value: `${(siteSummary?.totals?.average_load_15m_kw || 0).toFixed(3)} kW`, color: C.blue },
-    { label: "Net Balance", value: `${((siteSummary?.totals?.total_supply_today_kwh || 0) - (siteSummary?.totals?.total_demand_today_kwh || 0)).toFixed(3)} kWh`, color: ((siteSummary?.totals?.total_supply_today_kwh || 0) - (siteSummary?.totals?.total_demand_today_kwh || 0)) >= 0 ? C.green : C.red },
+    { label: "Peak Today",  value: `${(siteSummary?.totals?.peak_power_today_kw || 0).toFixed(3)} kW`,    color: C.yellow },
+    { label: "Avg Load",    value: `${(siteSummary?.totals?.average_load_15m_kw || 0).toFixed(3)} kW`,    color: C.blue },
+    {
+      label: "Net Balance",
+      value: `${((siteSummary?.totals?.total_supply_today_kwh || 0) - (siteSummary?.totals?.total_demand_today_kwh || 0)).toFixed(3)} kWh`,
+      color: ((siteSummary?.totals?.total_supply_today_kwh || 0) - (siteSummary?.totals?.total_demand_today_kwh || 0)) >= 0 ? C.green : C.red,
+    },
   ]
+
   const telemetryTiles = [
-    { label: "Voltage", value: `${(siteSummary?.current?.voltage_v || 0).toFixed(2)} V`, color: C.blue },
-    { label: "Current", value: `${(siteSummary?.current?.current_ma || 0).toFixed(1)} mA`, color: C.yellow },
-    { label: "Power", value: `${(siteSummary?.current?.power_w || 0).toFixed(3)} W`, color: C.green },
-    { label: "Energy", value: `${(siteSummary?.current?.energy_mwh_total || 0).toFixed(2)} mWh`, color: C.purple },
+    { label: "Voltage", value: `${(siteSummary?.current?.voltage_v || 0).toFixed(2)} V`,          color: C.blue },
+    { label: "Current", value: `${(siteSummary?.current?.current_ma || 0).toFixed(1)} mA`,         color: C.yellow },
+    { label: "Power",   value: `${(siteSummary?.current?.power_w || 0).toFixed(3)} W`,             color: C.green },
+    { label: "Energy",  value: `${(siteSummary?.current?.energy_mwh_total || 0).toFixed(2)} mWh`,  color: C.purple },
   ]
+
+  // ── Normalised user name (works with both flat and nested shapes) ──────────
+  const displayName = user?.name || user?.user?.name || "User"
 
   return (
     <>
@@ -284,14 +367,18 @@ export default function Dashboard() {
             <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 15, color: C.green }}>
               EcoGrid <span style={{ color: C.text2, fontWeight: 400 }}>/ Dashboard</span>
             </span>
-            <span style={{ fontSize: 10, color: C.text3 }}>Welcome, <span style={{ color: C.green }}>{user?.user?.name || user?.name || "User"}</span></span>
+            <span style={{ fontSize: 10, color: C.text3 }}>
+              Welcome, <span style={{ color: C.green }}>{displayName}</span>
+            </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: socketConnected ? C.green : C.yellow, animation: "pulse2 2s infinite" }} />
-              <span style={{ fontSize: 10, color: socketConnected ? C.green : C.yellow }}>{socketConnected ? "LIVE" : "CONNECTING"}</span>
+              <span style={{ fontSize: 10, color: socketConnected ? C.green : C.yellow }}>
+                {socketConnected ? "LIVE" : "CONNECTING"}
+              </span>
             </div>
-            <span style={{ fontSize: 10, color: C.text3, fontFamily: "'JetBrains Mono',monospace" }}>{currentTime.toLocaleTimeString()}</span>
+            <span style={{ fontSize: 10, color: C.text3 }}>{currentTime.toLocaleTimeString()}</span>
           </div>
         </div>
 
@@ -301,46 +388,44 @@ export default function Dashboard() {
           {/* ── COL 1: Power Backup + Energy Pricing ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
 
-            {/* Power Backup */}
             <Card title="Power Backup" badge={
               <button style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 3, padding: "2px 6px", color: C.text2, fontSize: 9, display: "flex", alignItems: "center", gap: 3 }}>
-                <EditIcon size={9} />Edit
+                <EditIcon size={9} /> Edit
               </button>
             }>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                 {[
-                  { icon: <BatteryChargingIcon size={13} color={C.green} />, value: powerBackup.capacity, label: "Usage/mo", color: C.green },
-                  { icon: <ZapIcon size={13} color={C.yellow} />, value: powerBackup.sold, label: "Sold", color: C.yellow },
-                  { icon: <ShoppingCartIcon size={13} color={C.blue} />, value: powerBackup.purchased, label: "Purchased", color: C.blue },
-                  { icon: <WalletIcon size={13} color={C.purple} />, value: powerBackup.wallet, label: "Wallet", color: C.purple },
+                  { icon: <BatteryChargingIcon size={13} color={C.green} />,  value: powerBackup.capacity,  label: "Usage/mo",  color: C.green },
+                  { icon: <ZapIcon size={13} color={C.yellow} />,             value: powerBackup.sold,      label: "Sold",      color: C.yellow },
+                  { icon: <ShoppingCartIcon size={13} color={C.blue} />,      value: powerBackup.purchased, label: "Purchased", color: C.blue },
+                  // ↓ walletDisplay is derived from WalletContext — updates live
+                  { icon: <WalletIcon size={13} color={C.purple} />,          value: walletDisplay,         label: "Wallet",    color: C.purple },
                 ].map((item, i) => <KpiTile key={i} {...item} />)}
               </div>
             </Card>
 
-            {/* Energy Pricing — fixed overflow */}
+            {/* Energy Pricing */}
             <Card title="Energy Pricing" badge={<Badge color={C.yellow} bg="rgba(255,209,102,.12)" border="rgba(255,209,102,.2)">NOK</Badge>}>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-
-                {/* Slider block */}
                 <div style={{ background: C.bg2, border: `1px solid ${C.border}`, padding: "11px 12px", borderRadius: 4 }}>
                   <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Token Value (NOK)</p>
                   <input type="range" value={energyPrice} min={1} max={2} step={0.1}
-                    onChange={e => setEnergyPrice(parseFloat(e.target.value))} />
-                  {/* Custom track fill */}
+                    onChange={(e) => setEnergyPrice(parseFloat(e.target.value))} />
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: C.text3, marginTop: 2 }}>
                     <span>1.0</span><span>1.5</span><span>2.0</span>
                   </div>
-                  <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: C.green, textAlign: "center", marginTop: 6, letterSpacing: "-0.5px" }}>{energyPrice.toFixed(1)} NOK</p>
+                  <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: C.green, textAlign: "center", marginTop: 6, letterSpacing: "-0.5px" }}>
+                    {energyPrice.toFixed(1)} NOK
+                  </p>
                 </div>
 
-                {/* Input + Set btn — key fix: no flex children overflowing */}
                 <div>
                   <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>Tokens / kWh</p>
                   <div style={{ display: "flex", width: "100%", overflow: "hidden", borderRadius: 4, border: `1px solid ${C.border2}` }}>
                     <input type="number"
                       style={{ flex: 1, minWidth: 0, background: C.bg2, border: "none", color: C.text, fontFamily: "'JetBrains Mono',monospace", fontSize: 13, padding: "7px 10px" }}
                       value={energyPrice}
-                      onChange={e => setEnergyPrice(parseFloat(e.target.value) || 2)} />
+                      onChange={(e) => setEnergyPrice(parseFloat(e.target.value) || 2)} />
                     <motion.button onClick={savePrice} disabled={isSavingPrice}
                       whileHover={isSavingPrice ? {} : { scale: 1.04 }} whileTap={isSavingPrice ? {} : { scale: 0.96 }}
                       style={{ flexShrink: 0, padding: "7px 12px", background: isSavingPrice ? C.border2 : `linear-gradient(135deg,${C.green},#00b4d8)`, border: "none", color: "#060810", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, minWidth: 44 }}>
@@ -349,12 +434,11 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Market comparison */}
                 <div style={{ background: C.bg2, border: `1px solid ${C.border}`, padding: "10px 12px", borderRadius: 4 }}>
                   {[
-                    ["Market Avg", `${marketAverage.toFixed(1)} tok`, C.text2],
-                    ["Your Price", `${energyPrice.toFixed(1)} tok`, C.green],
-                    ["vs Market", comparison, comparisonDelta >= 0 ? C.green : C.red],
+                    ["Market Avg",  `${marketAverage.toFixed(1)} tok`,  C.text2],
+                    ["Your Price",  `${energyPrice.toFixed(1)} tok`,    C.green],
+                    ["vs Market",   comparison, comparisonDelta >= 0 ? C.green : C.red],
                   ].map(([lbl, val, col], i, arr) => (
                     <div key={lbl} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: i < arr.length - 1 ? 6 : 0, marginBottom: i < arr.length - 1 ? 6 : 0, borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
                       <span style={{ fontSize: 10, color: C.text2 }}>{lbl}</span>
@@ -389,10 +473,10 @@ export default function Dashboard() {
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {[
-                { title: "Voltage", key: "Voltage", color: C.blue, unit: "V" },
+                { title: "Voltage",  key: "Voltage", color: C.blue,   unit: "V" },
                 { title: "Amperage", key: "Current", color: C.yellow, unit: "mA" },
-                { title: "Power", key: "Power", color: C.green, unit: "W" },
-                { title: "Energy", key: "Energy", color: C.purple, unit: "kWh" },
+                { title: "Power",    key: "Power",   color: C.green,  unit: "W" },
+                { title: "Energy",   key: "Energy",  color: C.purple, unit: "kWh" },
               ].map(({ title, key, color, unit }) => (
                 <div key={key} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 4, padding: 10, minWidth: 0, overflow: "hidden" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -402,21 +486,9 @@ export default function Dashboard() {
                   <ResponsiveContainer width="100%" height={145}>
                     <LineChart data={telemetryData} margin={{ top: 5, right: 8, left: -16, bottom: 12 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
-                      <XAxis
-                        dataKey="timestamp"
-                        tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }}
-                        axisLine={{ stroke: C.border }}
-                        tickLine={false}
-                        interval="preserveStartEnd"
-                        minTickGap={24}
-                        tickFormatter={formatTrendTick}
-                      />
-                      <YAxis
-                        domain={getTrendDomain(telemetryData, key)}
-                        tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
+                      <XAxis dataKey="timestamp" tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }}
+                        axisLine={{ stroke: C.border }} tickLine={false} interval="preserveStartEnd" minTickGap={24} tickFormatter={formatTrendTick} />
+                      <YAxis domain={getTrendDomain(telemetryData, key)} tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }} axisLine={false} tickLine={false} />
                       <Tooltip contentStyle={{ backgroundColor: C.bg2, borderColor: C.border, borderRadius: 4, color: C.text, fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }} labelStyle={{ color: C.text2, marginBottom: 4 }} />
                       <Line type="monotone" dataKey={key} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
                     </LineChart>
@@ -432,7 +504,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Mini stat row below chart */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 14 }}>
               {miniStats.map(({ label, value, color }) => (
                 <div key={label} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 4, padding: "8px 10px", textAlign: "center" }}>
@@ -442,7 +513,7 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* ── Production vs Consumption chart ── */}
+            {/* Production vs Consumption */}
             <div style={{ marginTop: 12 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 11, fontWeight: 700, color: C.text2, letterSpacing: "1.5px", textTransform: "uppercase" }}>Energy Flow — Consumed vs Produced</span>
@@ -452,12 +523,15 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Today's balance row */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 }}>
                 {[
                   { label: "Consumed Today", value: `${((siteSummary?.totals?.total_demand_today_kwh || 0) * 1000).toFixed(3)} Wh`, color: C.red },
                   { label: "Produced Today", value: `${((siteSummary?.totals?.total_supply_today_kwh || 0) * 1000).toFixed(3)} Wh`, color: C.green },
-                  { label: "Net Balance", value: `${(((siteSummary?.totals?.total_supply_today_kwh || 0) - (siteSummary?.totals?.total_demand_today_kwh || 0)) * 1000).toFixed(3)} Wh`, color: ((siteSummary?.totals?.total_supply_today_kwh || 0) >= (siteSummary?.totals?.total_demand_today_kwh || 0)) ? C.green : C.red },
+                  {
+                    label: "Net Balance",
+                    value: `${(((siteSummary?.totals?.total_supply_today_kwh || 0) - (siteSummary?.totals?.total_demand_today_kwh || 0)) * 1000).toFixed(3)} Wh`,
+                    color: ((siteSummary?.totals?.total_supply_today_kwh || 0) >= (siteSummary?.totals?.total_demand_today_kwh || 0)) ? C.green : C.red,
+                  },
                 ].map(({ label, value, color }) => (
                   <div key={label} style={{ background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 4, padding: "8px 10px", textAlign: "center" }}>
                     <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</p>
@@ -480,8 +554,9 @@ export default function Dashboard() {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false} />
-                    <XAxis dataKey="timestamp" tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }} axisLine={{ stroke: C.border }} tickLine={false} interval="preserveStartEnd" minTickGap={24} tickFormatter={formatTrendTick} />
-                    <YAxis tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }} axisLine={false} tickLine={false} tickFormatter={v => v === 0 ? '0' : v.toExponential(1)} />
+                    <XAxis dataKey="timestamp" tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }}
+                      axisLine={{ stroke: C.border }} tickLine={false} interval="preserveStartEnd" minTickGap={24} tickFormatter={formatTrendTick} />
+                    <YAxis tick={{ fill: C.text3, fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }} axisLine={false} tickLine={false} tickFormatter={(v) => v === 0 ? "0" : v.toExponential(1)} />
                     <Tooltip
                       contentStyle={{ backgroundColor: C.bg2, borderColor: C.border, borderRadius: 4, color: C.text, fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }}
                       labelStyle={{ color: C.text2, marginBottom: 4 }}
@@ -502,11 +577,14 @@ export default function Dashboard() {
                 { icon: <MapPinIcon size={12} color={C.blue} />, label: "Location", value: userProfileData.location },
                 { icon: <div style={{ display: "flex", gap: 2 }}><SunIcon size={12} color={C.yellow} /><WindIcon size={12} color={C.blue} /></div>, label: "Sources", value: userProfileData.energySources },
               ].map(({ icon, label, value }) => (
-                <motion.div key={label} whileHover={{ x: 2 }} style={{ display: "flex", alignItems: "center", padding: "8px 9px", borderRadius: 4, background: C.bg2, border: `1px solid ${C.border}`, gap: 8, overflow: "hidden" }}>
+                <motion.div key={label} whileHover={{ x: 2 }}
+                  style={{ display: "flex", alignItems: "center", padding: "8px 9px", borderRadius: 4, background: C.bg2, border: `1px solid ${C.border}`, gap: 8, overflow: "hidden" }}>
                   <div style={{ padding: 5, borderRadius: 3, background: C.bg, border: `1px solid ${C.border}`, display: "flex", flexShrink: 0 }}>{icon}</div>
                   <div style={{ minWidth: 0 }}>
                     <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1 }}>{label}</p>
-                    {value === null ? <Skel width={80} height={12} style={{ marginTop: 2 }} /> : <p style={{ fontSize: 11, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>}
+                    {value === null
+                      ? <Skel width={80} height={12} style={{ marginTop: 2 }} />
+                      : <p style={{ fontSize: 11, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</p>}
                   </div>
                 </motion.div>
               ))}
@@ -518,20 +596,21 @@ export default function Dashboard() {
                     <motion.div key={label} whileHover={{ scale: 1.04, y: -2 }}
                       style={{ background: C.bg2, border: `1px solid ${C.border}`, padding: "10px 8px", borderRadius: 4, textAlign: "center" }}>
                       <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</p>
-                      {val === null ? <div style={{ display: "flex", justifyContent: "center" }}><Skel width={30} height={22} /></div> : <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, color, lineHeight: 1 }}>{val}</p>}
+                      {val === null
+                        ? <div style={{ display: "flex", justifyContent: "center" }}><Skel width={30} height={22} /></div>
+                        : <p style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 22, color, lineHeight: 1 }}>{val}</p>}
                     </motion.div>
                   ))}
                 </div>
               </div>
 
-              {/* Quick actions */}
               <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10, marginTop: 2 }}>
                 <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Quick Actions</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {[
-                    { label: "⚡ Trade Energy", color: C.green, route: "/marketplace" },
-                    { label: "📊 View Reports", color: C.blue, route: "/prosumer" },
-                    { label: "⚙ Settings", color: C.text2, route: "/profile" },
+                    { label: "⚡ Trade Energy", color: C.green,  route: "/marketplace" },
+                    { label: "📊 View Reports",  color: C.blue,   route: "/prosumer" },
+                    { label: "⚙ Settings",       color: C.text2,  route: "/profile" },
                   ].map(({ label, color, route }) => (
                     <motion.button key={label} whileHover={{ x: 3 }} whileTap={{ scale: 0.97 }}
                       onClick={() => navigate(route)}

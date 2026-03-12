@@ -18,6 +18,7 @@ import Profile from "./frontend/Profile";
 import ForgotPasswordPage from "./frontend/Forgotpassword";
 import NotFound from "./frontend/NotFound";
 import PricingPage from "./frontend/Pricingpage";
+import OnboardingPage from "./frontend/OnboardingPage";
 import NotificationSystem from "./components/NotificationSystem";
 import { handlesuccess, intermediate } from "../utils";
 import useBlockchain from "./hooks/useBlockchain";
@@ -58,7 +59,7 @@ const BlockchainEventListener = () => {
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const { isAuthenticated, setisAuthenticated, user } = useContext(AuthContext);
+  const { isAuthenticated, user } = useContext(AuthContext);
 
   useEffect(() => {
     setTimeout(() => {
@@ -74,8 +75,13 @@ function App() {
     );
   }
 
-  const getUserType = () => {
-    return user?.user?.userType || user?.userType || null;
+  const getUserType = () => user?.user?.userType || user?.userType || null;
+  const needsOnboarding = isAuthenticated && user && !(user?.onboardingCompleted ?? user?.user?.onboardingCompleted ?? false);
+
+  const getDashboardPath = (type) => {
+    if (type === "consumer") return "/consumer-dashboard";
+    if (type === "utility") return "/utility-dashboard";
+    return "/dashboard";
   };
 
   // Redirect /dashboard to the role-specific dashboard
@@ -85,19 +91,24 @@ function App() {
       if (sessionStorage.getItem("justLoggedOut") !== "true") intermediate("Pls Login to access the page");
       return <Navigate to="/" />;
     }
-    if (type === "consumer") return <Navigate to="/consumer-dashboard" replace />;
-    if (type === "utility") return <Navigate to="/utility-dashboard" replace />;
+    if (needsOnboarding) return <Navigate to="/onboarding" replace />;
+    if (type === "consumer") return <Navigate to={getDashboardPath(type)} replace />;
+    if (type === "utility") return <Navigate to={getDashboardPath(type)} replace />;
     return <Dashboard />; // prosumer / default
   };
 
-  const PrivateRoute = ({ element, allowedTypes = null }) => {
+  const PrivateRoute = ({ element, allowedTypes = null, allowIncomplete = false }) => {
+    const type = getUserType();
     if (!isAuthenticated) {
       if (sessionStorage.getItem("justLoggedOut") !== "true") intermediate("Pls Login to access the page");
       return <Navigate to="/" />;
     }
+    if (!allowIncomplete && needsOnboarding) {
+      return <Navigate to="/onboarding" replace />;
+    }
     // If the route is type-restricted and user is wrong type, send to their dashboard
-    if (allowedTypes && !allowedTypes.includes(getUserType())) {
-      return <Navigate to="/dashboard" replace />;
+    if (allowedTypes && !allowedTypes.includes(type)) {
+      return <Navigate to={getDashboardPath(type)} replace />;
     }
     return element;
   };
@@ -129,9 +140,10 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/onboarding" element={<PrivateRoute element={<OnboardingPage />} allowIncomplete />} />
           <Route path="/dashboard" element={<DashboardRoute />} />
-          <Route path="/consumer-dashboard" element={<PrivateRoute element={<ConsumerDashboard />} allowedTypes={["consumer", "prosumer"]} />} />
-          <Route path="/utility-dashboard" element={<PrivateRoute element={<UtilityDashboard />} allowedTypes={["utility", "prosumer"]} />} />
+          <Route path="/consumer-dashboard" element={<PrivateRoute element={<ConsumerDashboard />} allowedTypes={["consumer"]} />} />
+          <Route path="/utility-dashboard" element={<PrivateRoute element={<UtilityDashboard />} allowedTypes={["utility"]} />} />
           <Route path="/about" element={<AboutUs />} />
 
           {/* Unified Energy Forecast page — covers both /forecast and /prosumer */}
@@ -139,7 +151,7 @@ function App() {
           <Route path="/prosumer" element={<PrivateRoute element={<EnergyForecast />} />} />
 
           <Route path="/marketplace" element={<MarketplacePage />} />
-          <Route path="/profile" element={<Profile />} />
+          <Route path="/profile" element={<PrivateRoute element={<Profile />} />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/pricing" element={<PricingPage />} />

@@ -311,7 +311,7 @@ const OnboardingWizard = ({ onComplete, isLoading, error }) => {
             </motion.button>
           ) : (
             <motion.button type="button" whileHover={{ scale: 1.03, boxShadow: `0 0 24px ${C.green}40` }} whileTap={{ scale: 0.97 }}
-              onClick={() => onComplete({ location: data.location, energyUsage: data.energyUsage, hasSolarPanels: data.hasSolarPanels, energySources: data.energySources })}
+              onClick={() => onComplete({ userType: data.role, location: data.location, energyUsage: data.energyUsage, hasSolarPanels: data.hasSolarPanels, energySources: data.energySources })}
               disabled={isLoading}
               style={{ flex: 1, padding: "12px 0", background: isLoading ? C.border : `linear-gradient(135deg, ${C.green}, #00b4d8)`, border: "none", borderRadius: 6, color: "#060810", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13, cursor: isLoading ? "not-allowed" : "pointer", letterSpacing: 0.5 }}>
               {isLoading ? "Saving…" : "Enter EcoGrid →"}
@@ -336,7 +336,7 @@ const RegisterPage = () => {
   const [recaptchaToken, setRecaptchaToken] = useState("");
   const recaptchaRef = useRef(null);
   const navigate = useNavigate();
-  const { setIsAuthenticated } = useContext(AuthContext);
+  const { setIsAuthenticated, setUser, login } = useContext(AuthContext);
 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
@@ -363,7 +363,6 @@ const RegisterPage = () => {
     if (!password || password.length < 8) errs.password = "Min 8 characters";
     else if (passwordStrength < 3) errs.password = "Use a stronger password";
     if (password !== confirmPassword) errs.confirmPassword = "Passwords don't match";
-    if (!userType) errs.userType = "Select a type";
     if (!recaptchaToken) errs.recaptcha = "Complete the reCAPTCHA";
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
@@ -375,9 +374,46 @@ const RegisterPage = () => {
     if (!validate()) return;
     setIsLoading(true);
     try {
-      await api.post("/register", { email, password, name, userType, recaptchaToken });
+      const response = await api.post("/register", { email, password, name, userType: "consumer", recaptchaToken });
       setSuccess("Account created! Redirecting…");
-      setTimeout(() => navigate("/login"), 1800);
+      const payload = response.data;
+      if (payload?.token) {
+        login?.({
+          token: payload.token,
+          persist: true,
+          user: payload.user,
+        });
+        localStorage.setItem("userType", payload.userType || payload.user?.userType || "consumer");
+        setSuccess(payload.isNewUser ? "Account created! Complete onboarding." : "Account created!");
+        if (payload.isNewUser) setShowOnboarding(true);
+        else { setIsAuthenticated(true); navigate("/dashboard"); }
+      } else {
+        try {
+          const loginResponse = await api.post("/login", { email, password, recaptchaToken });
+          const loginPayload = loginResponse.data;
+          login?.({
+            token: loginPayload.token,
+            persist: true,
+            user: {
+              name: loginPayload.name,
+              email,
+              userType: loginPayload.userType || "consumer",
+              onboardingCompleted: !loginPayload.isNewUser,
+            },
+          });
+          localStorage.setItem("userType", loginPayload.userType || "consumer");
+          if (loginPayload.isNewUser) {
+            setShowOnboarding(true);
+            setSuccess("Account created! Complete onboarding.");
+          } else {
+            setIsAuthenticated(true);
+            navigate("/dashboard");
+          }
+        } catch {
+          setSuccess("Account created! Please sign in to continue onboarding.");
+          setTimeout(() => navigate("/login"), 1800);
+        }
+      }
     } catch (err) {
       if (err.response?.data?.error === "recaptcha-failed") { setError("reCAPTCHA failed. Try again."); recaptchaRef.current?.reset(); setRecaptchaToken(""); }
       else setError(err.response?.data?.message || "Registration failed.");
@@ -393,7 +429,24 @@ const RegisterPage = () => {
     try {
       setIsLoading(true);
       const authToken = localStorage.getItem("authToken") || sessionStorage.getItem("authToken");
-      await api.post("/user/profile", profileData, { headers: { Authorization: `Bearer ${authToken}` } });
+      const response = await api.post("/user/profile", profileData, { headers: { Authorization: `Bearer ${authToken}` } });
+      localStorage.setItem("userType", profileData.userType || "consumer");
+      setUser((prev) => ({
+        ...(prev || {}),
+        ...(response.data?.profile?.user || {}),
+        userType: profileData.userType || response.data?.profile?.user?.userType || prev?.userType || "consumer",
+        onboardingCompleted: true,
+        profile: {
+          ...(prev?.profile || {}),
+          location: response.data?.profile?.location ?? profileData.location,
+          energyUsage: response.data?.profile?.energyUsage ?? profileData.energyUsage,
+          hasSolarPanels: response.data?.profile?.hasSolarPanels ?? profileData.hasSolarPanels,
+          energySources: response.data?.profile?.energySources ?? profileData.energySources,
+          walletAddress: response.data?.profile?.walletAddress ?? prev?.profile?.walletAddress,
+          forecastEngine: response.data?.profile?.forecastEngine ?? prev?.profile?.forecastEngine,
+          forecastZone: response.data?.profile?.forecastZone ?? prev?.profile?.forecastZone,
+        },
+      }));
       setShowOnboarding(false); setIsAuthenticated(true); handlesuccess("Profile created!"); navigate("/dashboard");
     } catch { setError("Failed to save profile."); }
     finally { setIsLoading(false); }
@@ -447,7 +500,7 @@ const RegisterPage = () => {
             </div>
 
             {/* User type — interactive cards */}
-            <div>
+            <div style={{ display: "none" }}>
               <p style={{ fontSize: 9, color: formErrors.userType ? C.red : C.text3, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Account Type {formErrors.userType && `— ${formErrors.userType}`}</p>
               <div style={{ display: "flex", gap: 8 }}>
                 {userTypes.map(({ id, label, icon: Icon, color }) => (

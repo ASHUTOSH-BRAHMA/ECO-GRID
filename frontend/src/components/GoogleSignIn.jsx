@@ -9,7 +9,6 @@ const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 
   const { login } = useContext(AuthContext);
 
   useEffect(() => {
-    // Load Google Identity Services script
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
@@ -22,7 +21,7 @@ const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 
           client_id: GOOGLE_CLIENT_ID,
           callback: handleGoogleResponse,
         });
-        
+
         window.google.accounts.id.renderButton(
           document.getElementById('google-signin-button'),
           {
@@ -37,7 +36,7 @@ const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 
     };
 
     return () => {
-      document.body.removeChild(script);
+      if (document.body.contains(script)) document.body.removeChild(script);
     };
   }, []);
 
@@ -45,12 +44,10 @@ const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 
     try {
       const res = await fetch(`${API_BASE_URL}/auth/google`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           credential: response.credential,
-          userType: userType,
+          userType,
         }),
       });
 
@@ -59,32 +56,30 @@ const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 
       if (data.success) {
         // Store token
         localStorage.setItem('authToken', data.token);
-        
-        // Update auth context
+
+        // Update auth context — pass user as flat doc (Shape B)
+        // AuthContext.login + normalizeUser will handle it correctly
         if (login) {
           login({
             token: data.token,
+            persist: true,
             user: data.user,
           });
         }
-        
+
         handlesuccess(data.message);
-        
-        if (onSuccess) {
-          onSuccess(data);
-        }
+
+        // Pass the FULL response to the parent so it can read
+        // data.isNewUser, data.userType, data.token, data.user all at once
+        if (onSuccess) onSuccess(data);
       } else {
         handleerror(data.message || 'Google sign-in failed');
-        if (onError) {
-          onError(data.message);
-        }
+        if (onError) onError(data.message);
       }
     } catch (error) {
       console.error('Google auth error:', error);
       handleerror('Failed to authenticate with Google');
-      if (onError) {
-        onError(error.message);
-      }
+      if (onError) onError(error.message);
     }
   };
 
@@ -98,7 +93,7 @@ const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 
 
   return (
     <div className="w-full">
-      <div id="google-signin-button" className="w-full flex justify-center"></div>
+      <div id="google-signin-button" className="w-full flex justify-center" />
     </div>
   );
 };

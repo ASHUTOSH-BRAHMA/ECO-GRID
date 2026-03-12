@@ -60,13 +60,6 @@ export const signup = async (req, res) => {
       });
     }
 
-        if (!userType) {
-            return res.status(400).json({
-                message: "userType is required",
-                success: false
-            });
-        }
-
         const userExists = await Users.findOne({ email });
 
         if (userExists) {
@@ -80,7 +73,7 @@ export const signup = async (req, res) => {
             name,
             email,
             password: await bcrypt.hash(password, 10),
-            userType,
+            userType: userType || "consumer",
             onboardingCompleted:false
         });
 
@@ -158,7 +151,7 @@ export const login = async (req, res) => {
 // Add a new endpoint to save user profile data during onboarding
 export const saveUserProfile = async (req, res) => {
     try {
-        const { location, energyUsage, hasSolarPanels } = req.body;
+        const { location, energyUsage, hasSolarPanels, userType } = req.body;
         const userId = req.user._id;
 
         let profile = await UserProfile.findOne({ user: userId });
@@ -179,11 +172,16 @@ export const saveUserProfile = async (req, res) => {
         await profile.save();
 
         // ✅ Update user's onboarding status
-        await Users.findByIdAndUpdate(userId, { onboardingCompleted: true });
+        const userUpdate = { onboardingCompleted: true };
+        if (userType) userUpdate.userType = userType;
+        await Users.findByIdAndUpdate(userId, userUpdate);
+
+        const savedProfile = await UserProfile.findOne({ user: userId }).populate('user', 'name email userType onboardingCompleted createdAt');
 
         res.status(200).json({ 
             message: "Profile updated successfully", 
-            success: true 
+            success: true,
+            profile: savedProfile
         });
     } catch (error) {
         console.error(error);

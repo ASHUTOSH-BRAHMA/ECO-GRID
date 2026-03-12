@@ -230,7 +230,7 @@ const OnboardingWizard = ({ onComplete, isLoading, error }) => {
               {step === 2 ? "Review" : "Continue"} <ChevronRight size={13} />
             </motion.button>
           ) : (
-            <motion.button type="button" whileHover={{ scale: 1.03 }} onClick={() => onComplete({ location: data.location, energyUsage: data.energyUsage, hasSolarPanels: data.hasSolarPanels, energySources: data.energySources })} disabled={isLoading}
+            <motion.button type="button" whileHover={{ scale: 1.03 }} onClick={() => onComplete({ userType: data.role, location: data.location, energyUsage: data.energyUsage, hasSolarPanels: data.hasSolarPanels, energySources: data.energySources })} disabled={isLoading}
               style={{ flex: 1, padding: "10px 0", background: isLoading ? C.border : `linear-gradient(135deg, ${C.green}, #00b4d8)`, border: "none", borderRadius: 5, color: "#060810", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, cursor: isLoading ? "not-allowed" : "pointer" }}>
               {isLoading ? "Saving…" : "Enter EcoGrid →"}
             </motion.button>
@@ -295,7 +295,7 @@ const LoginPage = () => {
   const [recaptchaErr, setRecaptchaErr] = useState("");
 
   const navigate = useNavigate();
-  const { setIsAuthenticated } = useContext(AuthContext);
+  const { setIsAuthenticated, setUser, login } = useContext(AuthContext);
   const api = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
 
   React.useEffect(() => { const iv = setInterval(() => setTIdx(t => (t + 1) % testimonials.length), 5000); return () => clearInterval(iv); }, []);
@@ -317,8 +317,16 @@ const LoginPage = () => {
     try {
       const response = await api.post("/login", { email, password, recaptchaToken: recaptchaValue });
       const payload = response.data;
-      if (rememberMe) localStorage.setItem("authToken", payload.token);
-      else sessionStorage.setItem("authToken", payload.token);
+      login?.({
+        token: payload.token,
+        persist: rememberMe,
+        user: {
+          name: payload.name,
+          email,
+          userType: payload.userType || "consumer",
+          onboardingCompleted: !payload.isNewUser,
+        },
+      });
       localStorage.setItem("userType", payload.userType || "consumer");
       if (payload.isNewUser) setShowOnboarding(true);
       else { setIsAuthenticated(true); handlesuccess("Logged in Successfully"); route(payload.userType); }
@@ -336,7 +344,24 @@ const LoginPage = () => {
     try {
       setIsLoading(true);
       const authToken = localStorage.getItem("authToken") || sessionStorage.getItem("authToken");
-      await api.post("/user/profile", profileData, { headers: { Authorization: `Bearer ${authToken}` } });
+      const response = await api.post("/user/profile", profileData, { headers: { Authorization: `Bearer ${authToken}` } });
+      localStorage.setItem("userType", profileData.userType || "consumer");
+      setUser((prev) => ({
+        ...(prev || {}),
+        ...(response.data?.profile?.user || {}),
+        userType: profileData.userType || response.data?.profile?.user?.userType || prev?.userType || "consumer",
+        onboardingCompleted: true,
+        profile: {
+          ...(prev?.profile || {}),
+          location: response.data?.profile?.location ?? profileData.location,
+          energyUsage: response.data?.profile?.energyUsage ?? profileData.energyUsage,
+          hasSolarPanels: response.data?.profile?.hasSolarPanels ?? profileData.hasSolarPanels,
+          energySources: response.data?.profile?.energySources ?? profileData.energySources,
+          walletAddress: response.data?.profile?.walletAddress ?? prev?.profile?.walletAddress,
+          forecastEngine: response.data?.profile?.forecastEngine ?? prev?.profile?.forecastEngine,
+          forecastZone: response.data?.profile?.forecastZone ?? prev?.profile?.forecastZone,
+        },
+      }));
       setShowOnboarding(false); setIsAuthenticated(true); handlesuccess("Profile created!");
       route(localStorage.getItem("userType") || "consumer");
     } catch { setError("Failed to save profile."); }

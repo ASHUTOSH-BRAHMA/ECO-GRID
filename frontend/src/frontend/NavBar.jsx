@@ -16,6 +16,7 @@ const C = {
 
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap');
+  @keyframes pulse2{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
 `
 
 const NavBar = () => {
@@ -23,8 +24,15 @@ const NavBar = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  const { isAuthenticated, setIsAuthenticated, user } = useContext(AuthContext)
+  const { isAuthenticated, setIsAuthenticated, user, logout } = useContext(AuthContext)
   const { isConnected, walletAddress } = useWallet()
+
+  const userType = user?.user?.userType || user?.userType || user?.profile?.userType || "prosumer"
+  const dashboardPath = userType === "consumer"
+    ? "/consumer-dashboard"
+    : userType === "utility"
+      ? "/utility-dashboard"
+      : "/dashboard"
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 10)
@@ -35,27 +43,32 @@ const NavBar = () => {
   useEffect(() => { setIsMobileMenuOpen(false) }, [location.pathname])
 
   const handleLogout = () => {
-    sessionStorage.setItem('justLoggedOut', 'true')
-    localStorage.removeItem('authToken')
-    sessionStorage.removeItem('authToken')
-    localStorage.removeItem('loggedInUser')
+    sessionStorage.setItem("justLoggedOut", "true")
+    logout?.()
+    localStorage.removeItem("loggedInUser")
     localStorage.removeItem("userType")
     setIsAuthenticated(false)
     handlesuccess("Logged out Successfully")
-    navigate('/')
-    setTimeout(() => sessionStorage.removeItem('justLoggedOut'), 500)
+    navigate("/")
+    setTimeout(() => sessionStorage.removeItem("justLoggedOut"), 500)
   }
 
   const navItems = [
-    { name: "About", path: "/about", icon: <Leaf size={13} /> },
-    { name: "Marketplace", path: "/marketplace", icon: <ShoppingBag size={13} /> },
-    { name: "Blog", path: "/blog", icon: <FileText size={13} /> },
-    { name: "Pricing", path: "/pricing", icon: <DollarSign size={13} /> },
+    { name: "About",        path: "/about",       icon: <Leaf size={13} /> },
+    { name: "Marketplace",  path: "/marketplace", icon: <ShoppingBag size={13} /> },
+    { name: "Blog",         path: "/blog",        icon: <FileText size={13} /> },
+    { name: "Pricing",      path: "/pricing",     icon: <DollarSign size={13} /> },
     ...(isAuthenticated ? [
-      { name: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={13} /> },
-      { name: "EnergyForecast", path: "/prosumer", icon: <LayoutDashboard size={13} /> },
+      { name: "Dashboard",      path: dashboardPath, icon: <LayoutDashboard size={13} /> },
+      { name: "EnergyForecast", path: "/prosumer",  icon: <LayoutDashboard size={13} /> },
     ] : []),
   ]
+
+  // After normalizeUser, `user` is a flat User doc: { name, email, userType, ... }
+  // No more user?.user?.name — just user?.name
+  const displayName  = user?.name  || "Guest"
+  const displayEmail = user?.email || "guest@example.com"
+  const avatarLetter = displayName.charAt(0).toUpperCase()
 
   const navStyle = {
     position: "fixed", top: 0, width: "100%", zIndex: 999,
@@ -78,8 +91,7 @@ const NavBar = () => {
               <motion.div
                 style={{ width: 34, height: 34, background: "linear-gradient(135deg,#ffd166,#f59e0b)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 12px rgba(255,209,102,.3)" }}
                 animate={{ rotate: [0, 5, 0, -5, 0] }}
-                transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-              >
+                transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}>
                 <span style={{ color: "#064e3b", fontSize: 16, fontWeight: 900 }}>⚡</span>
               </motion.div>
               <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: 20, color: C.text }}>
@@ -95,26 +107,27 @@ const NavBar = () => {
               return (
                 <Link key={item.name} to={item.path} style={{ textDecoration: "none" }}>
                   <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
-                    style={{ padding: "6px 12px", borderRadius: 4, display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: "'JetBrains Mono',monospace", cursor: "pointer", transition: "all .2s",
+                    style={{
+                      padding: "6px 12px", borderRadius: 4, display: "flex", alignItems: "center", gap: 6,
+                      fontSize: 11, cursor: "pointer", transition: "all .2s",
                       background: active ? `${C.green}18` : "transparent",
                       border: `1px solid ${active ? `${C.green}40` : "transparent"}`,
                       color: active ? C.green : C.text2,
                     }}>
-                    {item.icon}
-                    {item.name}
+                    {item.icon}{item.name}
                   </motion.div>
                 </Link>
               )
             })}
 
-            {/* Auth */}
             <div style={{ marginLeft: 12, display: "flex", gap: 8, alignItems: "center" }}>
               {isConnected && isAuthenticated && (
-                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "rgba(0, 229, 160, 0.1)", border: "1px solid rgba(0, 229, 160, 0.2)", borderRadius: 4, color: C.green, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.green, animation: "pulse2 2s infinite" }}></div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", background: "rgba(0,229,160,.1)", border: "1px solid rgba(0,229,160,.2)", borderRadius: 4, color: C.green, fontSize: 11 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.green, animation: "pulse2 2s infinite" }} />
                   {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "Connected"}
                 </div>
               )}
+
               {!isAuthenticated ? (
                 <>
                   <Link to="/login" style={{ textDecoration: "none" }}>
@@ -125,7 +138,7 @@ const NavBar = () => {
                   </Link>
                   <Link to="/register" style={{ textDecoration: "none" }}>
                     <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
-                      style={{ padding: "6px 16px", background: "transparent", border: `1px solid ${C.border2}`, borderRadius: 4, color: C.text2, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, cursor: "pointer" }}>
+                      style={{ padding: "6px 16px", background: "transparent", border: `1px solid ${C.border2}`, borderRadius: 4, color: C.text2, fontSize: 11, cursor: "pointer" }}>
                       Register
                     </motion.button>
                   </Link>
@@ -134,34 +147,34 @@ const NavBar = () => {
                 <HeadlessMenu as="div" style={{ position: "relative" }}>
                   <HeadlessMenu.Button style={{ display: "flex", alignItems: "center", gap: 8, background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 4, padding: "6px 12px", cursor: "pointer" }}>
                     <div style={{ width: 26, height: 26, borderRadius: "50%", background: `${C.green}22`, border: `1px solid ${C.green}44`, display: "flex", alignItems: "center", justifyContent: "center", color: C.green, fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12 }}>
-                      {user?.user?.name ? user.user.name.charAt(0).toUpperCase() : (user?.name ? user.name.charAt(0).toUpperCase() : "G")}
+                      {avatarLetter}
                     </div>
-                    <span style={{ color: C.text, fontSize: 12, fontFamily: "'JetBrains Mono',monospace" }}>{user?.user?.name || user?.name || "Guest"}</span>
+                    <span style={{ color: C.text, fontSize: 12 }}>{displayName}</span>
                     <ChevronDown size={13} color={C.text2} />
                   </HeadlessMenu.Button>
+
                   <Transition as={Fragment}
                     enter="transition ease-out duration-100" enterFrom="transform opacity-0 scale-95" enterTo="transform opacity-100 scale-100"
                     leave="transition ease-in duration-75" leaveFrom="transform opacity-100 scale-100" leaveTo="transform opacity-0 scale-95">
                     <HeadlessMenu.Items style={{ position: "absolute", right: 0, marginTop: 8, width: 220, background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 0", zIndex: 99, boxShadow: "0 20px 40px rgba(0,0,0,.5)" }}>
                       <div style={{ padding: "8px 14px", borderBottom: `1px solid ${C.border}`, marginBottom: 4 }}>
                         <p style={{ fontSize: 9, color: C.text3, textTransform: "uppercase", letterSpacing: 1 }}>Signed in as</p>
-                        <p style={{ fontSize: 12, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.user?.email || "guest@example.com"}</p>
+                        <p style={{ fontSize: 12, color: C.text, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayEmail}</p>
                       </div>
                       <HeadlessMenu.Item>
                         {({ active }) => (
                           <Link to="/profile" style={{ textDecoration: "none" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", background: active ? C.bg3 : "transparent", color: active ? C.green : C.text, fontSize: 12 }}>
-                              <UserCircle size={14} color={C.green} />
-                              Profile
+                              <UserCircle size={14} color={C.green} /> Profile
                             </div>
                           </Link>
                         )}
                       </HeadlessMenu.Item>
                       <HeadlessMenu.Item>
                         {({ active }) => (
-                          <button onClick={handleLogout} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", background: active ? `${C.red}11` : "transparent", color: C.red, fontSize: 12, border: "none", width: "100%", fontFamily: "'JetBrains Mono',monospace" }}>
-                            <LogOut size={14} />
-                            Logout
+                          <button onClick={handleLogout}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", background: active ? `${C.red}11` : "transparent", color: C.red, fontSize: 12, border: "none", width: "100%", fontFamily: "'JetBrains Mono',monospace" }}>
+                            <LogOut size={14} /> Logout
                           </button>
                         )}
                       </HeadlessMenu.Item>
@@ -210,11 +223,11 @@ const NavBar = () => {
                     <>
                       <Link to="/profile" style={{ textDecoration: "none" }}>
                         <div style={{ padding: "10px", background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, textAlign: "center", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                          <UserCircle size={14} />Profile
+                          <UserCircle size={14} /> Profile
                         </div>
                       </Link>
                       <button onClick={handleLogout} style={{ padding: "10px", background: `${C.red}11`, border: `1px solid ${C.red}40`, borderRadius: 4, color: C.red, fontSize: 11, cursor: "pointer", fontFamily: "'JetBrains Mono',monospace", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                        <LogOut size={14} />Logout
+                        <LogOut size={14} /> Logout
                       </button>
                     </>
                   )}

@@ -28,6 +28,21 @@ export const WalletProvider = ({ children }) => {
     }
   }, []);
 
+  const hydrateConnection = useCallback(async () => {
+    if (!window.ethereum) return;
+    try {
+      const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+      if (!accounts?.length) return;
+
+      const address = await blockchainService.connect();
+      setWalletAddress(address);
+      setIsConnected(true);
+      await refreshBalances(address);
+    } catch (err) {
+      console.error('Failed to hydrate wallet connection:', err);
+    }
+  }, [refreshBalances]);
+
   const connect = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -118,6 +133,8 @@ export const WalletProvider = ({ children }) => {
 
   // Listen for MetaMask account / chain changes
   useEffect(() => {
+    hydrateConnection();
+
     blockchainService.onAccountsChanged((accounts) => {
       if (accounts.length === 0) {
         setIsConnected(false);
@@ -125,6 +142,7 @@ export const WalletProvider = ({ children }) => {
         setTokenBalance('0');
         setEnergyBalance('0');
       } else {
+        setIsConnected(true);
         setWalletAddress(accounts[0]);
         refreshBalances(accounts[0]);
       }
@@ -133,7 +151,7 @@ export const WalletProvider = ({ children }) => {
     blockchainService.onChainChanged(() => {
       window.location.reload();
     });
-  }, [refreshBalances]);
+  }, [hydrateConnection, refreshBalances]);
 
   const value = {
     isConnected,
