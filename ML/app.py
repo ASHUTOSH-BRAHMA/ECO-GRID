@@ -12,9 +12,29 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Configure CORS dynamically
-allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000")
-CORS(app, origins=[origin.strip() for origin in allowed_origins.split(",") if origin.strip()])
+
+def parse_cors_origins():
+    raw_origins = os.getenv(
+        "CORS_ORIGINS",
+        ",".join(
+            [
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "https://ecogrid-blue.vercel.app",
+            ]
+        ),
+    )
+    origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+    return "*" if "*" in origins else origins
+
+
+# Keep production CORS working even if the Render env var is missing.
+CORS(
+    app,
+    origins=parse_cors_origins(),
+    methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 # ──────────────────────────────────────────────
 # CONFIG
