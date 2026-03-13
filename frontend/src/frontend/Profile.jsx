@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../Context/AuthContext";
 import { useWallet } from "../Context/WalletContext";
 import NavBar from "./NavBar";
@@ -32,6 +33,7 @@ const userCreatedAt = (u) => u?.createdAt ?? null;
 // ─── Component ────────────────────────────────────────────────────────────────
 const Profile = () => {
   const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -265,7 +267,7 @@ const Profile = () => {
             <h2 className="text-xl font-bold text-[#e8eaf6] mb-2 font-['Syne']">Couldn't load profile</h2>
             <p className="text-[#8892b0] text-sm mb-4 font-mono">{error || "Please log in again."}</p>
             <button
-              onClick={() => (window.location.href = "/login")}
+              onClick={() => navigate("/login")}
               className="px-6 py-2 bg-[#00e5a0]/10 border border-[#00e5a0]/50 text-[#00e5a0] rounded-lg font-mono text-sm tracking-wider uppercase hover:bg-[#00e5a0]/20 transition-colors"
             >
               Go to Login

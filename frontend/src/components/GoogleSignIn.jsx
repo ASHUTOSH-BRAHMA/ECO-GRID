@@ -1,44 +1,41 @@
-import React, { useEffect, useContext } from 'react';
+import React, { useEffect, useContext, useRef } from 'react';
 import { AuthContext } from '../Context/AuthContext';
 import { handleerror, handlesuccess } from '../../utils';
 import { API_BASE_URL } from '../config';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+let googleScriptPromise;
+
+const loadGoogleScript = () => {
+  if (window.google?.accounts?.id) {
+    return Promise.resolve();
+  }
+
+  if (!googleScriptPromise) {
+    googleScriptPromise = new Promise((resolve, reject) => {
+      const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+      if (existingScript) {
+        existingScript.addEventListener('load', resolve, { once: true });
+        existingScript.addEventListener('error', reject, { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.body.appendChild(script);
+    });
+  }
+
+  return googleScriptPromise;
+};
 
 const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 'Sign in with Google' }) => {
   const { login } = useContext(AuthContext);
-
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    document.body.appendChild(script);
-
-    script.onload = () => {
-      if (window.google && GOOGLE_CLIENT_ID) {
-        window.google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: handleGoogleResponse,
-        });
-
-        window.google.accounts.id.renderButton(
-          document.getElementById('google-signin-button'),
-          {
-            theme: 'outline',
-            size: 'large',
-            width: '100%',
-            text: 'signin_with',
-            shape: 'rectangular',
-          }
-        );
-      }
-    };
-
-    return () => {
-      if (document.body.contains(script)) document.body.removeChild(script);
-    };
-  }, []);
+  const buttonRef = useRef(null);
 
   const handleGoogleResponse = async (response) => {
     try {
@@ -83,6 +80,48 @@ const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 
     }
   };
 
+  useEffect(() => {
+
+    if (!GOOGLE_CLIENT_ID || !buttonRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+
+    loadGoogleScript()
+      .then(() => {
+        if (cancelled || !window.google?.accounts?.id || !buttonRef.current) {
+          return;
+        }
+
+        buttonRef.current.innerHTML = '';
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: handleGoogleResponse,
+        });
+
+        window.google.accounts.id.renderButton(buttonRef.current, {
+          theme: 'outline',
+          size: 'large',
+          width: '100%',
+          text: buttonText === 'Sign up with Google' ? 'signup_with' : 'signin_with',
+          shape: 'rectangular',
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          handleerror('Failed to load Google Sign-In');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (buttonRef.current) {
+        buttonRef.current.innerHTML = '';
+      }
+    };
+  }, [buttonText, login, onError, onSuccess, userType]);
+
   if (!GOOGLE_CLIENT_ID) {
     return (
       <div className="w-full p-3 bg-gray-100 rounded-lg text-center text-gray-500 text-sm">
@@ -93,7 +132,7 @@ const GoogleSignIn = ({ onSuccess, onError, userType = 'consumer', buttonText = 
 
   return (
     <div className="w-full">
-      <div id="google-signin-button" className="w-full flex justify-center" />
+      <div ref={buttonRef} className="w-full flex justify-center" />
     </div>
   );
 };

@@ -7,12 +7,18 @@ export const useSocket = () => {
   const [energyData, setEnergyData] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const socketRef = useRef(null);
+  const wantsEnergySubscriptionRef = useRef(false);
+  const hasLoggedConnectionIssueRef = useRef(false);
 
   useEffect(() => {
     // Initialize socket connection
     socketRef.current = io(SOCKET_URL, {
       withCredentials: true,
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      timeout: 5000,
+      reconnection: true,
+      reconnectionAttempts: 3,
+      reconnectionDelay: 1500,
     });
 
     const socket = socketRef.current;
@@ -20,6 +26,10 @@ export const useSocket = () => {
     socket.on('connect', () => {
       console.log('Socket connected:', socket.id);
       setIsConnected(true);
+      hasLoggedConnectionIssueRef.current = false;
+      if (wantsEnergySubscriptionRef.current) {
+        socket.emit('subscribe-energy-data');
+      }
     });
 
     socket.on('disconnect', () => {
@@ -28,13 +38,19 @@ export const useSocket = () => {
     });
 
     socket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
       setIsConnected(false);
+      if (!hasLoggedConnectionIssueRef.current) {
+        hasLoggedConnectionIssueRef.current = true;
+      }
     });
 
     // Listen for energy data updates
     socket.on('energy-data', (data) => {
-      setEnergyData(data);
+      // Keep a unique object identity for every frame so React effects always run.
+      setEnergyData({
+        ...(data || {}),
+        _receivedAt: Date.now(),
+      });
     });
 
     // Listen for listing updates
@@ -102,9 +118,17 @@ export const useSocket = () => {
 
   // Subscribe to energy data
   const subscribeToEnergyData = useCallback(() => {
-    if (socketRef.current) {
+    wantsEnergySubscriptionRef.current = true;
+    if (socketRef.current?.connected) {
       socketRef.current.emit('subscribe-energy-data');
     }
+
+    return () => {
+      wantsEnergySubscriptionRef.current = false;
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('unsubscribe-energy-data');
+      }
+    };
   }, []);
 
   // Clear a notification

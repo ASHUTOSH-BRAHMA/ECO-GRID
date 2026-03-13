@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { handlesuccess } from "../../utils";
 import { API_BASE_URL } from "../config";
@@ -166,13 +166,12 @@ const ForgotPasswordPage = () => {
                 
                 <div className="mt-6 text-center">
                     <p className="text-gray-600">
-                        <motion.a 
-                            href="/login" 
+                        <Link
+                            to="/login"
                             className="text-green-600 hover:text-green-800 font-medium transition duration-200"
-                            whileHover={{ scale: 1.05 }}
                         >
                             Return to login
-                        </motion.a>
+                        </Link>
                     </p>
                 </div>
             </motion.div>
